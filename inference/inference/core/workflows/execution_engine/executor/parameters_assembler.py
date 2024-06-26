@@ -1,14 +1,15 @@
-def retrieve_value_from_runtime_input(
+def retrieve_step_output(
     selector: str,
-    runtime_parameters: Dict[str, Any],
+    execution_cache: ExecutionCache,
     accepts_batch_input: bool,
     step_name: str,
 ) -> Any:
-    try:
-        parameter_name = get_last_chunk_of_selector(selector=selector)
-        value = runtime_parameters[parameter_name]
-        if not _retrieved_inference_image(value=value) or accepts_batch_input:
-            return value
+    value = execution_cache.get_output(selector=selector)
+    if not execution_cache.output_represent_batch(selector=selector):
+        value = value[0]
+    if accepts_batch_input:
+        return value
+    if isinstance(value, list):
         if len(value) > 1:
             raise ExecutionEngineNotImplementedError(
                 public_message=f"Step `{step_name}` defines input pointing to {selector} which "
@@ -19,14 +20,4 @@ def retrieve_value_from_runtime_input(
                 context="workflow_execution | steps_parameters_assembling",
             )
         return value[0]
-    except KeyError as e:
-        raise ExecutionEngineRuntimeError(
-            public_message=f"Attempted to retrieve runtime parameter using selector {selector} "
-            f"discovering miss in runtime parameters. This should have been detected "
-            f"by execution engine at the earlier stage. "
-            f"Contact Roboflow team through github issues "
-            f"(https://github.com/roboflow/inference/issues) providing full context of"
-            f"the problem - including workflow definition you use.",
-            context="workflow_execution | steps_parameters_assembling",
-            inner_error=e,
-        ) from e
+    return value

@@ -1,15 +1,23 @@
-def one_step_forward(rnn, batch_input, recurrent_state):
-    """One-step batch forward computation of a recurrent module.
+def mask_recurrent_state_at(recurrent_state, indices):
+    """Return a recurrent state masked at given indices.
+
+    This function can be used to initialize a recurrent state only for a
+    certain sequence, not all the sequences.
 
     Args:
-        rnn (torch.nn.Module): Recurrent module.
-        batch_input (BatchData): One-step batched input.
         recurrent_state (object): Batched recurrent state.
+        indices (int or array-like of ints): Which recurrent state to mask.
 
     Returns:
-        object: One-step batched output.
         object: New batched recurrent state.
     """
-    pack = pack_one_step_batch_as_sequences(batch_input)
-    y, recurrent_state = rnn(pack, recurrent_state)
-    return unpack_sequences_as_one_step_batch(y), recurrent_state
+    if recurrent_state is None:
+        return None
+    elif isinstance(recurrent_state, torch.Tensor):
+        mask = torch.ones_like(recurrent_state)
+        mask[:, indices] = 0
+        return recurrent_state * mask
+    elif isinstance(recurrent_state, tuple):
+        return tuple(mask_recurrent_state_at(s, indices) for s in recurrent_state)
+    else:
+        raise ValueError("Invalid recurrent state: {}".format(recurrent_state))

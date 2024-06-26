@@ -1,16 +1,26 @@
-def get_parent_id_of_detections_from_sources(
-    detections_from_sources: List[List[dict]],
-) -> str:
-    encountered_parent_ids = {
-        p[PARENT_ID_KEY]
-        for prediction_source in detections_from_sources
-        for p in prediction_source
+def merge_detections(
+    detections: List[dict],
+    confidence_aggregation_mode: AggregationMode,
+    boxes_aggregation_mode: AggregationMode,
+) -> dict:
+    class_name, class_id = AGGREGATION_MODE2CLASS_SELECTOR[confidence_aggregation_mode](
+        detections
+    )
+    x, y, width, height = AGGREGATION_MODE2BOXES_AGGREGATOR[boxes_aggregation_mode](
+        detections
+    )
+    return {
+        PARENT_ID_KEY: detections[0][PARENT_ID_KEY],
+        DETECTION_ID_KEY: f"{uuid4()}",
+        "class": class_name,
+        "class_id": class_id,
+        "confidence": aggregate_field_values(
+            detections=detections,
+            field="confidence",
+            aggregation_mode=confidence_aggregation_mode,
+        ),
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
     }
-    if len(encountered_parent_ids) != 1:
-        raise ValueError(
-            "Missmatch in predictions - while executing consensus step, "
-            "in equivalent batches, detections are assigned different parent "
-            "identifiers, whereas consensus can only be applied for predictions "
-            "made against the same input."
-        )
-    return next(iter(encountered_parent_ids))

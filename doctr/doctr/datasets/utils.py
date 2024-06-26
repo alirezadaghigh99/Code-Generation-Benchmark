@@ -1,34 +1,20 @@
-def translate(
-    input_string: str,
-    vocab_name: str,
-    unknown_char: str = "■",
-) -> str:
-    """Translate a string input in a given vocabulary
+def crop_bboxes_from_image(img_path: Union[str, Path], geoms: np.ndarray) -> List[np.ndarray]:
+    """Crop a set of bounding boxes from an image
 
     Args:
     ----
-        input_string: input string to translate
-        vocab_name: vocabulary to use (french, latin, ...)
-        unknown_char: unknown character for non-translatable characters
+        img_path: path to the image
+        geoms: a array of polygons of shape (N, 4, 2) or of straight boxes of shape (N, 4)
 
     Returns:
     -------
-        A string translated in a given vocab
+        a list of cropped images
     """
-    if VOCABS.get(vocab_name) is None:
-        raise KeyError("output vocabulary must be in vocabs dictionnary")
-
-    translated = ""
-    for char in input_string:
-        if char not in VOCABS[vocab_name]:
-            # we need to translate char into a vocab char
-            if char in string.whitespace:
-                # remove whitespaces
-                continue
-            # normalize character if it is not in vocab
-            char = unicodedata.normalize("NFD", char).encode("ascii", "ignore").decode("ascii")
-            if char == "" or char not in VOCABS[vocab_name]:
-                # if normalization fails or char still not in vocab, return unknown character)
-                char = unknown_char
-        translated += char
-    return translated
+    with Image.open(img_path) as pil_img:
+        img: np.ndarray = np.array(pil_img.convert("RGB"))
+    # Polygon
+    if geoms.ndim == 3 and geoms.shape[1:] == (4, 2):
+        return extract_rcrops(img, geoms.astype(dtype=int))
+    if geoms.ndim == 2 and geoms.shape[1] == 4:
+        return extract_crops(img, geoms.astype(dtype=int))
+    raise ValueError("Invalid geometry format")

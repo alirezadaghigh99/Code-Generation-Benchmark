@@ -1,16 +1,16 @@
-def tensorflow_session():
-    if hasattr(tensorflow_session, 'cache'):
-        session = tensorflow_session.cache
+def initialize_uninitialized_variables(variables=None):
+    if variables is None:
+        variables = tf.global_variables()
 
-        if not session._closed:
-            return session
+    if not variables:
+        return
 
-    config = tf.ConfigProto(
-        allow_soft_placement=True,
-        inter_op_parallelism_threads=0,
-        intra_op_parallelism_threads=0,
-    )
-    session = tf.Session(config=config)
+    session = tensorflow_session()
+    is_not_initialized = session.run([
+        tf.is_variable_initialized(var) for var in variables])
 
-    tensorflow_session.cache = session
-    return session
+    not_initialized_vars = [
+        v for (v, f) in zip(variables, is_not_initialized) if not f]
+
+    if len(not_initialized_vars):
+        session.run(tf.variables_initializer(not_initialized_vars))

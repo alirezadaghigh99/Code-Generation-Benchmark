@@ -1,0 +1,2 @@
+class RoboflowAPIConnectionError(RoboflowAPIRequestError):
+    pass

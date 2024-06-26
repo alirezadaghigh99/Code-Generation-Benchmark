@@ -1,4 +1,5 @@
-def clear_cache(model_id: Optional[str] = None) -> None:
-    cache_dir = get_cache_dir(model_id=model_id)
-    if os.path.exists(cache_dir):
-        shutil.rmtree(cache_dir)
+def load_json_from_cache(
+    file: str, model_id: Optional[str] = None, **kwargs
+) -> Optional[Union[dict, list]]:
+    cached_file_path = get_cache_file_path(file=file, model_id=model_id)
+    return read_json(path=cached_file_path, **kwargs)

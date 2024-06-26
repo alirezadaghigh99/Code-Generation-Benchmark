@@ -1,2 +1,2 @@
-def is_selector(selector_or_value: Any) -> bool:
-    return str(selector_or_value).startswith("$")
+def get_last_chunk_of_selector(selector: str) -> str:
+    return selector.split(".")[-1]
