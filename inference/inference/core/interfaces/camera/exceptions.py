@@ -1,0 +1,2 @@
+class SourceConnectionError(StreamError):
+    pass
