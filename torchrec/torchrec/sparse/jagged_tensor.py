@@ -1118,4 +1118,82 @@
             offsets=torch.empty(0, dtype=lengths_dtype, device=device),
             lengths=torch.empty(0, dtype=lengths_dtype, device=device),
             weights=weights,
+        )    def from_dense_lengths(
+        values: torch.Tensor,
+        lengths: torch.Tensor,
+        weights: Optional[torch.Tensor] = None,
+    ) -> "JaggedTensor":
+        """
+        Constructs `JaggedTensor` from dense values/weights of shape (B, N,).
+
+        Note that `lengths` is still of shape (B,).
+        """
+
+        mask2d = (
+            _arange(end=values.size(1), device=values.device).expand(values.size(0), -1)
+        ) < lengths.unsqueeze(-1)
+        return JaggedTensor(
+            values=values[mask2d],
+            weights=_optional_mask(weights, mask2d),
+            lengths=lengths,
+        )    def from_dense(
+        values: List[torch.Tensor],
+        weights: Optional[List[torch.Tensor]] = None,
+    ) -> "JaggedTensor":
+        """
+        Constructs `JaggedTensor` from dense values/weights of shape (B, N,).
+
+        Note that `lengths` and `offsets` are still of shape (B,).
+
+        Args:
+            values (List[torch.Tensor]): a list of tensors for dense representation
+            weights (Optional[List[torch.Tensor]]): if values have weights, tensor with
+                the same shape as values.
+
+        Returns:
+            JaggedTensor: JaggedTensor created from 2D dense tensor.
+
+        Example::
+
+            values = [
+                torch.Tensor([1.0]),
+                torch.Tensor(),
+                torch.Tensor([7.0, 8.0]),
+                torch.Tensor([10.0, 11.0, 12.0]),
+            ]
+            weights = [
+                torch.Tensor([1.0]),
+                torch.Tensor(),
+                torch.Tensor([7.0, 8.0]),
+                torch.Tensor([10.0, 11.0, 12.0]),
+            ]
+            j1 = JaggedTensor.from_dense(
+                values=values,
+                weights=weights,
+            )
+
+            # j1 = [[1.0], [], [7.0], [8.0], [10.0, 11.0, 12.0]]
+        """
+
+        values_tensor = torch.cat(values, dim=0)
+        lengths = torch.tensor(
+            [value.size(0) for value in values],
+            dtype=torch.int32,
+            device=values_tensor.device,
+        )
+        weights_tensor = torch.cat(weights, dim=0) if weights is not None else None
+
+        return JaggedTensor(
+            values=values_tensor,
+            weights=weights_tensor,
+            lengths=lengths,
+        )    def from_tensor_list(
+        keys: List[str], tensors: List[torch.Tensor], key_dim: int = 1, cat_dim: int = 1
+    ) -> "KeyedTensor":
+        length_per_key = [tensor.shape[key_dim] for tensor in tensors]
+        return KeyedTensor(
+            keys=keys,
+            length_per_key=length_per_key,
+            values=torch.cat(tensors, dim=cat_dim),
+            key_dim=key_dim,
         )

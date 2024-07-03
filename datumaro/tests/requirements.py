@@ -4,4 +4,10 @@ def mark_requirement(requirement):
             *_SHARED_DECORATORS,
             pytest.mark.reqids(requirement),
         ]
+    )def mark_requirement(requirement):
+    return _CombinedDecorator(
+        [
+            *_SHARED_DECORATORS,
+            pytest.mark.reqids(requirement),
+        ]
     )

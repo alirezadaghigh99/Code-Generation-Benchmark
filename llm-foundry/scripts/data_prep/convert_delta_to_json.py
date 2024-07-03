@@ -48,4 +48,34 @@ def fetch_DT(args: Namespace) -> None:
     iterative_combine_jsons(
         args.json_output_folder,
         os.path.join(args.json_output_folder, args.json_output_filename),
-    )
+    )def run_query(
+    query: str,
+    method: str,
+    cursor: Optional[Cursor] = None,
+    spark: Optional[SparkSession] = None,
+    collect: bool = True,
+) -> Optional[Union[List[Row], DataFrame, SparkDataFrame]]:
+    """Run SQL query via databricks-connect or databricks-sql.
+
+    Args:
+        query (str): sql query
+        method (str): select from dbsql and dbconnect
+        cursor (Optional[Cursor]): connection.cursor
+        spark (Optional[SparkSession]): spark session
+        collect (bool): whether to get the underlying data from spark dataframe
+    """
+    if method == 'dbsql':
+        if cursor is None:
+            raise ValueError(f'cursor cannot be None if using method dbsql')
+        cursor.execute(query)
+        if collect:
+            return cursor.fetchall()
+    elif method == 'dbconnect':
+        if spark == None:
+            raise ValueError(f'sparkSession is required for dbconnect')
+        df = spark.sql(query)
+        if collect:
+            return df.collect()
+        return df
+    else:
+        raise ValueError(f'Unrecognized method: {method}')

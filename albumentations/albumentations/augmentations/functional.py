@@ -63,4 +63,25 @@ def brightness_contrast_adjust(
     upscaled = cv2.resize(downscaled, (width, height), interpolation=up_interpolation)
     if need_cast:
         return from_float(np.clip(upscaled, 0, 1), dtype=np.dtype("uint8"))
-    return upscaled
+    return upscaleddef planckian_jitter(img: np.ndarray, temperature: int, mode: PlanckianJitterMode = "blackbody") -> np.ndarray:
+    img = img.copy()
+    # Linearly interpolate between 2 closest temperatures
+    step = 500
+    t_left = (temperature // step) * step
+    t_right = (temperature // step + 1) * step
+
+    w_left = (t_right - temperature) / step
+    w_right = (temperature - t_left) / step
+
+    coeffs = w_left * np.array(PLANCKIAN_COEFFS[mode][t_left]) + w_right * np.array(PLANCKIAN_COEFFS[mode][t_right])
+
+    image = img / 255.0 if img.dtype == np.uint8 else img
+
+    image[:, :, 0] = image[:, :, 0] * (coeffs[0] / coeffs[1])
+    image[:, :, 2] = image[:, :, 2] * (coeffs[2] / coeffs[1])
+    image[image > 1] = 1
+
+    if img.dtype == np.uint8:
+        return image * 255.0
+
+    return image

@@ -138,4 +138,118 @@ def spawn_multi_process(
     if world_size.isdecimal():
         return int(world_size)
 
-    return 1
+    return 1def sync_bool(
+    val: bool,
+    pg: Optional[dist.ProcessGroup] = None,
+    coherence_mode: Union[Literal["any", "all", "rank_zero"], int, float] = "any",
+) -> bool:
+    """Utility to synchronize a boolean value across members of a provided process group.
+
+    In the case ``torch.distributed`` is not available or initialized, the input ``val`` is returned.
+
+    Args:
+        val (bool): boolean value to synchronize
+        pg: process group to use for synchronization. If not specified, the default process group is used.
+        coherence_mode Union[str, int, float]: the manner in which the boolean value should be synchronized. 5 options are currently supported:
+            1. any (default): If any rank provides a True value, all ranks should receive True.
+            2. all: Only if all ranks provide a True value should all ranks receive True.
+            3. rank_zero: Makes rank 0 process's value the source of truth and broadcasts the result to all other processes.
+            4. If an integer N is provided, return True only if at least N processes provide a True value.
+            5. If a float F is provided, return True only if at least this ratio of processes provide a True value. The ratio provided should be in the range [0, 1].
+
+    Returns:
+        The synchronized boolean value.
+
+    Example::
+
+        >>> val = True
+        >>> # synced_val is True iff all ranks provide a True value to the function
+        >>> synced_val = sync_bool(val, coherence_mode="all")
+        >>> if synced_val:
+        >>>     print("success")
+
+    """
+    if not dist.is_available() or not dist.is_initialized():
+        return val
+
+    pg = pg or dist.group.WORLD
+    device = torch.device(
+        torch.cuda.current_device() if dist.get_backend(pg) == "nccl" else "cpu"
+    )
+    pg_wrapper = PGWrapper(pg)
+
+    dtype = torch.uint8
+    if pg_wrapper.get_world_size() > 256:
+        dtype = torch.int
+
+    indicator = (
+        torch.ones(1, device=device, dtype=dtype)
+        if val
+        else torch.zeros(1, device=device, dtype=dtype)
+    )
+
+    if coherence_mode == "rank_zero":
+        # Broadcast from rank 0 to all other ranks
+        dist.broadcast(indicator, src=0, group=pg)
+        return bool(indicator[0].item())
+    elif coherence_mode == "any":
+        # sum up the indicators across all the ranks.
+        dist.all_reduce(indicator, op=dist.ReduceOp.SUM)
+        return indicator.item() > 0
+    elif coherence_mode == "all":
+        dist.all_reduce(indicator, op=dist.ReduceOp.SUM)
+        return indicator.item() == pg_wrapper.get_world_size()
+    elif isinstance(coherence_mode, int):
+        # if >= int(coherence_mode) processes signal to stop, all processes stop
+        dist.all_reduce(indicator, op=dist.ReduceOp.SUM)
+        return indicator.item() >= coherence_mode
+    elif isinstance(coherence_mode, float):
+        dist.all_reduce(indicator, op=dist.ReduceOp.SUM)
+        return (indicator.item() / pg_wrapper.get_world_size()) >= coherence_mode
+    else:
+        raise TypeError(
+            f'Invalid value for `coherence_mode` provided: Expected type int, float, or one of ("any", "all", "rank_zero"), but received {coherence_mode}.'
+        )def spawn_multi_process(
+    world_size: int,
+    backend: str,
+    method: Callable[TParams, TReturn],
+    *method_args: Any,
+    **method_kwargs: Any,
+) -> List[TReturn]:
+    """
+    Spawn single node, multi-rank function.
+    Uses localhost and free port to communicate.
+
+    Args:
+        world_size: number of processes
+        backend: backend to use. for example, "nccl", "gloo", etc
+        method: callable to spawn.
+        method_args: args for the method
+        method_kwargs: kwargs for the method
+
+    Returns:
+        A list, l, where l[i] is the return value of method(*method_args, **methods_kwargs) on rank i
+    """
+    manager = multiprocessing.Manager()
+    mp_output_dict = manager.dict()
+
+    port = str(get_free_port())
+    torch.multiprocessing.spawn(
+        # torch.multiprocessing.spawn sends rank as the first param
+        # https://pytorch.org/docs/stable/multiprocessing.html#torch.multiprocessing.spawn
+        _init_pg_and_rank_and_launch_method,
+        args=(
+            ProcessGroupSetupParams(backend=backend, port=port, world_size=world_size),
+            mp_output_dict,
+            method,
+            method_args,
+            method_kwargs,
+        ),
+        nprocs=world_size,
+    )
+
+    output_list = []
+    for i in range(world_size):
+        output_list.append(mp_output_dict[i])
+
+    return output_list

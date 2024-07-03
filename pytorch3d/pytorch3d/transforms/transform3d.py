@@ -712,4 +712,161 @@ class Translate(Transform3d):
         """
         if isinstance(index, int):
             index = [index]
-        return self.__class__(self.get_matrix()[index, :3, :3])
+        return self.__class__(self.get_matrix()[index, :3, :3])class Translate(Transform3d):
+    def __init__(
+        self,
+        x,
+        y=None,
+        z=None,
+        dtype: torch.dtype = torch.float32,
+        device: Optional[Device] = None,
+    ) -> None:
+        """
+        Create a new Transform3d representing 3D translations.
+
+        Option I: Translate(xyz, dtype=torch.float32, device='cpu')
+            xyz should be a tensor of shape (N, 3)
+
+        Option II: Translate(x, y, z, dtype=torch.float32, device='cpu')
+            Here x, y, and z will be broadcast against each other and
+            concatenated to form the translation. Each can be:
+                - A python scalar
+                - A torch scalar
+                - A 1D torch tensor
+        """
+        xyz = _handle_input(x, y, z, dtype, device, "Translate")
+        super().__init__(device=xyz.device, dtype=dtype)
+        N = xyz.shape[0]
+
+        mat = torch.eye(4, dtype=dtype, device=self.device)
+        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat[:, 3, :3] = xyz
+        self._matrix = mat
+
+    def _get_matrix_inverse(self) -> torch.Tensor:
+        """
+        Return the inverse of self._matrix.
+        """
+        inv_mask = self._matrix.new_ones([1, 4, 4])
+        inv_mask[0, 3, :3] = -1.0
+        i_matrix = self._matrix * inv_mask
+        return i_matrix
+
+    def __getitem__(
+        self, index: Union[int, List[int], slice, torch.BoolTensor, torch.LongTensor]
+    ) -> "Transform3d":
+        """
+        Args:
+            index: Specifying the index of the transform to retrieve.
+                Can be an int, slice, list of ints, boolean, long tensor.
+                Supports negative indices.
+
+        Returns:
+            Transform3d object with selected transforms. The tensors are not cloned.
+        """
+        if isinstance(index, int):
+            index = [index]
+        return self.__class__(self.get_matrix()[index, 3, :3])class RotateAxisAngle(Rotate):
+    def __init__(
+        self,
+        angle,
+        axis: str = "X",
+        degrees: bool = True,
+        dtype: torch.dtype = torch.float32,
+        device: Optional[Device] = None,
+    ) -> None:
+        """
+        Create a new Transform3d representing 3D rotation about an axis
+        by an angle.
+
+        Assuming a right-hand coordinate system, positive rotation angles result
+        in a counter clockwise rotation.
+
+        Args:
+            angle:
+                - A torch tensor of shape (N,)
+                - A python scalar
+                - A torch scalar
+            axis:
+                string: one of ["X", "Y", "Z"] indicating the axis about which
+                to rotate.
+                NOTE: All batch elements are rotated about the same axis.
+        """
+        axis = axis.upper()
+        if axis not in ["X", "Y", "Z"]:
+            msg = "Expected axis to be one of ['X', 'Y', 'Z']; got %s"
+            raise ValueError(msg % axis)
+        angle = _handle_angle_input(angle, dtype, device, "RotateAxisAngle")
+        angle = (angle / 180.0 * math.pi) if degrees else angle
+        # We assume the points on which this transformation will be applied
+        # are row vectors. The rotation matrix returned from _axis_angle_rotation
+        # is for transforming column vectors. Therefore we transpose this matrix.
+        # R will always be of shape (N, 3, 3)
+        R = _axis_angle_rotation(axis, angle).transpose(1, 2)
+        super().__init__(device=angle.device, R=R, dtype=dtype)class Scale(Transform3d):
+    def __init__(
+        self,
+        x,
+        y=None,
+        z=None,
+        dtype: torch.dtype = torch.float32,
+        device: Optional[Device] = None,
+    ) -> None:
+        """
+        A Transform3d representing a scaling operation, with different scale
+        factors along each coordinate axis.
+
+        Option I: Scale(s, dtype=torch.float32, device='cpu')
+            s can be one of
+                - Python scalar or torch scalar: Single uniform scale
+                - 1D torch tensor of shape (N,): A batch of uniform scale
+                - 2D torch tensor of shape (N, 3): Scale differently along each axis
+
+        Option II: Scale(x, y, z, dtype=torch.float32, device='cpu')
+            Each of x, y, and z can be one of
+                - python scalar
+                - torch scalar
+                - 1D torch tensor
+        """
+        xyz = _handle_input(x, y, z, dtype, device, "scale", allow_singleton=True)
+        super().__init__(device=xyz.device, dtype=dtype)
+        N = xyz.shape[0]
+
+        # TODO: Can we do this all in one go somehow?
+        mat = torch.eye(4, dtype=dtype, device=self.device)
+        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat[:, 0, 0] = xyz[:, 0]
+        mat[:, 1, 1] = xyz[:, 1]
+        mat[:, 2, 2] = xyz[:, 2]
+        self._matrix = mat
+
+    def _get_matrix_inverse(self) -> torch.Tensor:
+        """
+        Return the inverse of self._matrix.
+        """
+        xyz = torch.stack([self._matrix[:, i, i] for i in range(4)], dim=1)
+        # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
+        ixyz = 1.0 / xyz
+        # pyre-fixme[6]: For 1st param expected `Tensor` but got `float`.
+        imat = torch.diag_embed(ixyz, dim1=1, dim2=2)
+        return imat
+
+    def __getitem__(
+        self, index: Union[int, List[int], slice, torch.BoolTensor, torch.LongTensor]
+    ) -> "Transform3d":
+        """
+        Args:
+            index: Specifying the index of the transform to retrieve.
+                Can be an int, slice, list of ints, boolean, long tensor.
+                Supports negative indices.
+
+        Returns:
+            Transform3d object with selected transforms. The tensors are not cloned.
+        """
+        if isinstance(index, int):
+            index = [index]
+        mat = self.get_matrix()[index]
+        x = mat[:, 0, 0]
+        y = mat[:, 1, 1]
+        z = mat[:, 2, 2]
+        return self.__class__(x, y, z)

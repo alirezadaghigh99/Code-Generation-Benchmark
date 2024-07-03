@@ -111,4 +111,61 @@ def copy_data_to_device(data: T, device: torch.device, *args: Any, **kwargs: Any
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    return device
+    return devicedef copy_data_to_device(data: T, device: torch.device, *args: Any, **kwargs: Any) -> T:
+    """Function that recursively copies data to a torch.device.
+
+    Args:
+        data: The data to copy to device
+        device: The device to which the data should be copied
+        args: positional arguments that will be passed to the `to` call
+        kwargs: keyword arguments that will be passed to the `to` call
+
+    Returns:
+        The data on the correct device
+    """
+
+    # Redundant isinstance(data, tuple) check is required here to make pyre happy
+    if _is_named_tuple(data) and isinstance(data, tuple):
+        return type(data)(
+            **copy_data_to_device(data._asdict(), device, *args, **kwargs)
+        )
+    elif isinstance(data, (list, tuple)):
+        return type(data)(copy_data_to_device(e, device, *args, **kwargs) for e in data)
+    elif isinstance(data, defaultdict):
+        return type(data)(
+            data.default_factory,
+            {
+                k: copy_data_to_device(v, device, *args, **kwargs)
+                for k, v in data.items()
+            },
+        )
+    elif isinstance(data, Mapping):
+        return type(data)(
+            {
+                k: copy_data_to_device(v, device, *args, **kwargs)
+                for k, v in data.items()
+            }
+        )
+    elif is_dataclass(data) and not isinstance(data, type):
+        new_data_class = type(data)(
+            **{
+                field.name: copy_data_to_device(
+                    getattr(data, field.name), device, *args, **kwargs
+                )
+                for field in fields(data)
+                if field.init
+            }
+        )
+        for field in fields(data):
+            if not field.init:
+                setattr(
+                    new_data_class,
+                    field.name,
+                    copy_data_to_device(
+                        getattr(data, field.name), device, *args, **kwargs
+                    ),
+                )
+        return new_data_class
+    elif isinstance(data, _CopyableData):
+        return data.to(device, *args, **kwargs)
+    return data

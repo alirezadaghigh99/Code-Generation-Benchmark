@@ -24,4 +24,23 @@ class Normal(torch.distributions.Normal, TorchDistributionMixin):
         result = super().enumerate_support(expand=expand)
         if not expand:
             result._pyro_categorical_support = id(self)
-        return result
+        return resultclass Beta(torch.distributions.Beta, TorchDistributionMixin):
+    def conjugate_update(self, other):
+        """
+        EXPERIMENTAL.
+        """
+        assert isinstance(other, Beta)
+        concentration1 = self.concentration1 + other.concentration1 - 1
+        concentration0 = self.concentration0 + other.concentration0 - 1
+        updated = Beta(concentration1, concentration0)
+
+        def _log_normalizer(d):
+            x = d.concentration1
+            y = d.concentration0
+            return (x + y).lgamma() - x.lgamma() - y.lgamma()
+
+        log_normalizer = (
+            _log_normalizer(self) + _log_normalizer(other) - _log_normalizer(updated)
+        )
+        return updated, log_normalizerclass Normal(torch.distributions.Normal, TorchDistributionMixin):
+    pass

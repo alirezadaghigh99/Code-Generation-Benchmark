@@ -31,4 +31,6 @@
             pass
 
         def synchronize(self) -> None:
-            pass
+            pass    class device:  # noqa: N801 invalid-class-name # pyright: ignore [reportIncompatibleVariableOverride]
+        def __init__(self, device) -> None:
+            self.device = device

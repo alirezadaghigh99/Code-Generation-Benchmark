@@ -299,4 +299,7 @@ def tensordot(  # noqa: F811
         )[0]
         # flatten path for dispatching to C++
         path = [item for pair in tupled_path for item in pair]
-    return _VF.einsum(equation, operands, path=path)  # type: ignore[attr-defined]
+    return _VF.einsum(equation, operands, path=path)  # type: ignore[attr-defined]    def meshgrid(
+        *tensors: Union[Tensor, List[Tensor]], indexing: Optional[str] = None
+    ) -> Tuple[Tensor, ...]:
+        return _meshgrid(*tensors, indexing=indexing)

@@ -638,4 +638,16 @@ class Assembler:
         if self.unique:
             data["single"] = self.unique
         with open(output_name, "wb") as file:
-            pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
+            pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)def _parse_ground_truth_data(data):
+    gt = dict()
+    for i, arr in enumerate(data):
+        temp = []
+        for row in arr:
+            if np.isnan(row[:, :2]).all():
+                continue
+            ass = Assembly.from_array(row)
+            temp.append(ass)
+        if not temp:
+            continue
+        gt[i] = temp
+    return gt

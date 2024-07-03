@@ -3,4 +3,10 @@ def process_non_negative_range(value: ScaleType | None) -> tuple[float, float]:
     if not all(x >= 0 for x in result):
         msg = "All values in the non negative range should be non negative"
         raise ValueError(msg)
-    return result
+    return resultdef check_1plus(value: tuple[NumericType, NumericType]) -> tuple[NumericType, NumericType]:
+    if any(x < 1 for x in value):
+        raise ValueError(f"All values should be >= 1, got {value} instead")
+    return valuedef check_01(value: tuple[NumericType, NumericType]) -> tuple[NumericType, NumericType]:
+    if not all(0 <= x <= 1 for x in value):
+        raise ValueError(f"All values should be in [0, 1], got {value} instead")
+    return value

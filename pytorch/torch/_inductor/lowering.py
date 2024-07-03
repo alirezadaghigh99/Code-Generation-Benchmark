@@ -25,4 +25,5 @@ def empty_strided(
         size=size,
         stride=stride,
     )
-    return pointwise
+    return pointwisedef _unsafe_index_put(x, indices, values, accumulate=False):
+    return index_put_impl_(clone(x), indices, values, accumulate, check=False)

@@ -62,4 +62,21 @@ def preprocess_input(
         warnings.warn("Masking depths!")
         depth_map = depth_map * fg_mask
 
-    return image_rgb, fg_mask, depth_map
+    return image_rgb, fg_mask, depth_mapdef weighted_sum_losses(
+    preds: Dict[str, torch.Tensor], loss_weights: Dict[str, float]
+) -> Optional[torch.Tensor]:
+    """
+    A helper function to compute the overall loss as the dot product
+    of individual loss functions with the corresponding weights.
+    """
+    losses_weighted = [
+        preds[k] * float(w)
+        for k, w in loss_weights.items()
+        if (k in preds and w != 0.0)
+    ]
+    if len(losses_weighted) == 0:
+        warnings.warn("No main objective found.")
+        return None
+    loss = sum(losses_weighted)
+    assert torch.is_tensor(loss)
+    return loss

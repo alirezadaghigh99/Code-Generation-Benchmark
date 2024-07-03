@@ -70,4 +70,15 @@ def rand_split_train_val(
         selected_dps = self.dp_selector(self.datapipes)
         for dp in selected_dps:
             for data in dp:
-                yield data
+                yield datadef idx_split_train_val(
+    datapipe: IterDataPipe,
+    train_perc: float,
+    decimal_places: int = 2,
+    key_fn: Callable[[int], int] = _default_key_fn,
+) -> Tuple[IterDataPipe, IterDataPipe]:
+    if not 0.0 < train_perc < 1.0:
+        raise ValueError("train_perc must be in range (0.0, 1.0)")
+    return (
+        _IdxFilter(datapipe, partial(train_filter, key_fn, train_perc, decimal_places)),
+        _IdxFilter(datapipe, partial(val_filter, key_fn, train_perc, decimal_places)),
+    )

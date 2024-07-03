@@ -127,4 +127,64 @@ class _RendezvousState:
                 timeout = self._DEFAULT_TIMEOUTS[name]
             if timeout <= self._ZERO:
                 raise ValueError(f"The {name} timeout ({timeout}) must be positive.")
-            setattr(self, "_" + name, timeout)
+            setattr(self, "_" + name, timeout)class _RendezvousState:
+    """Hold the state of a rendezvous.
+
+    Attributes:
+        round:
+            The current round of the rendezvous.
+        complete:
+            A boolean value indicating whether the current round of the
+            rendezvous is complete.
+        deadline:
+            The time at which the current round of the rendezvous will be
+            considered complete if it is still waiting for nodes to join.
+        closed:
+            A boolean value indicating whether the rendezvous is closed.
+        participants:
+            A dictionary of the participants and their corresponding ranks.
+        wait_list:
+            A set of nodes that are waiting to participate in the next round of
+            the rendezvous.
+        redundancy_list:
+            A set of nodes that are redundant in the current round and can join
+            the next rendezvous without triggering re-rendezvous.
+        last_heartbeats:
+            A dictionary containing each node's last heartbeat time.
+    """
+
+    round: int
+    complete: bool
+    deadline: Optional[datetime]
+    closed: bool
+    participants: Dict[_NodeDesc, int]
+    wait_list: Set[_NodeDesc]
+    redundancy_list: Set[_NodeDesc]
+    last_heartbeats: Dict[_NodeDesc, datetime]
+
+    def __init__(self) -> None:
+        self.round = 0
+        self.complete = False
+        self.deadline = None
+        self.closed = False
+        self.participants = {}
+        self.wait_list = set()
+        self.redundancy_list = set()
+        self.last_heartbeats = {}class _NodeDesc:
+    """Describe a node in the rendezvous.
+
+    Attributes:
+        addr:
+            The FQDN of the node or user specified local node address.
+        pid:
+            The id of the process in which the rendezvous handler runs.
+        local_id:
+            A process-wide unique id.
+    """
+
+    addr: str
+    pid: int
+    local_id: int
+
+    def __repr__(self) -> str:
+        return f"{self.addr}_{self.pid}_{self.local_id}"

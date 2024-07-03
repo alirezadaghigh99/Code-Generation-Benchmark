@@ -59,4 +59,16 @@
 
     if module in {"", "builtins"}:
         return qualname
-    return f"{module}.{qualname}"
+    return f"{module}.{qualname}"    def dtype(self):
+        _warn_typed_storage_removal(stacklevel=3)
+        return self._dtypedef compile(
+    model: _Callable[_InputT, _RetT],
+    *,
+    fullgraph: builtins.bool = False,
+    dynamic: _Optional[builtins.bool] = None,
+    backend: _Union[str, _Callable] = "inductor",
+    mode: _Union[str, None] = None,
+    options: _Optional[_Dict[str, _Union[str, builtins.int, builtins.bool]]] = None,
+    disable: builtins.bool = False,
+) -> _Callable[_InputT, _RetT]:
+    ...

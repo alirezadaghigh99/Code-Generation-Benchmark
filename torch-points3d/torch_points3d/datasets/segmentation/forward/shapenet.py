@@ -91,4 +91,64 @@ class ForwardShapenetDataset(BaseDataset):
         num = 0
         for seg in segments:
             num = max(num, max(seg))
-        return num + 1
+        return num + 1class _ForwardShapenet(torch.utils.data.Dataset):
+    """ Dataset to run forward inference on Shapenet kind of data data. Runs on a whole folder.
+    Arguments:
+        path: folder that contains a set of files of a given category
+        category: index of the category to use for forward inference. This value depends on how many categories the model has been trained one.
+        transforms: transforms to be applied to the data
+        include_normals: wether to include normals for the forward inference
+    """
+
+    def __init__(self, path, category: int, transforms=None, include_normals=True):
+        super().__init__()
+        self._category = category
+        self._path = path
+        self._files = sorted(glob.glob(os.path.join(self._path, "*.txt")))
+        self._transforms = transforms
+        self._include_normals = include_normals
+        assert os.path.exists(self._path)
+        if self.__len__() == 0:
+            raise ValueError("Empty folder %s" % path)
+
+    def __len__(self):
+        return len(self._files)
+
+    def len(self):
+        return len(self)
+
+    def _read_file(self, filename):
+        raw = read_txt_array(filename)
+        pos = raw[:, :3]
+        x = raw[:, 3:6]
+        if raw.shape[1] == 7:
+            y = raw[:, 6].type(torch.long)
+        else:
+            y = None
+        return Data(pos=pos, x=x, y=y)
+
+    def get_raw(self, index):
+        """ returns the untransformed data associated with an element
+        """
+        return self._read_file(self._files[index])
+
+    @property
+    def num_features(self):
+        feats = self[0].x
+        if feats is not None:
+            return feats.shape[-1]
+        return 0
+
+    def get_filename(self, index):
+        return os.path.basename(self._files[index])
+
+    def __getitem__(self, index):
+        data = self._read_file(self._files[index])
+        category = torch.ones(data.pos.shape[0], dtype=torch.long) * self._category
+        setattr(data, "category", category)
+        setattr(data, "sampleid", torch.tensor([index]))
+        if not self._include_normals:
+            data.x = None
+        if self._transforms is not None:
+            data = self._transforms(data)
+        return data

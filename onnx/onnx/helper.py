@@ -322,4 +322,207 @@ def make_tensor(
     """
     if attr_type in AttributeProto.AttributeType.values():
         return _ATTRIBUTE_TYPE_TO_STR[attr_type]  # type: ignore[no-any-return]
-    return AttributeProto.AttributeType.keys()[0]  # type: ignore[no-any-return]
+    return AttributeProto.AttributeType.keys()[0]  # type: ignore[no-any-return]def make_graph(
+    nodes: Sequence[NodeProto],
+    name: str,
+    inputs: Sequence[ValueInfoProto],
+    outputs: Sequence[ValueInfoProto],
+    initializer: Sequence[TensorProto] | None = None,
+    doc_string: str | None = None,
+    value_info: Sequence[ValueInfoProto] | None = None,
+    sparse_initializer: Sequence[SparseTensorProto] | None = None,
+) -> GraphProto:
+    """Construct a GraphProto
+
+    Args:
+        nodes: list of NodeProto
+        name (string): graph name
+        inputs: list of ValueInfoProto
+        outputs: list of ValueInfoProto
+        initializer: list of TensorProto
+        doc_string (string): graph documentation
+        value_info: list of ValueInfoProto
+        sparse_initializer: list of SparseTensorProto
+    Returns:
+        GraphProto
+    """
+    if initializer is None:
+        initializer = []
+    if sparse_initializer is None:
+        sparse_initializer = []
+    if value_info is None:
+        value_info = []
+    graph = GraphProto()
+    graph.node.extend(nodes)
+    graph.name = name
+    graph.input.extend(inputs)
+    graph.output.extend(outputs)
+    graph.initializer.extend(initializer)
+    graph.sparse_initializer.extend(sparse_initializer)
+    graph.value_info.extend(value_info)
+    if doc_string:
+        graph.doc_string = doc_string
+    return graphdef make_tensor(
+    name: str, data_type: int, dims: Sequence[int], vals: Any, raw: bool = False
+) -> TensorProto:
+    """Make a TensorProto with specified arguments.  If raw is False, this
+    function will choose the corresponding proto field to store the
+    values based on data_type. If raw is True, use "raw_data" proto
+    field to store the values, and values should be of type bytes in
+    this case.
+
+    Args:
+        name (string): tensor name
+        data_type (int): a value such as onnx.TensorProto.FLOAT
+        dims (List[int]): shape
+        vals: values
+        raw (bool): if True, vals contains the serialized content of the tensor,
+            otherwise, vals should be a list of values of the type defined by *data_type*
+
+    Returns:
+        TensorProto
+    """
+    tensor = TensorProto()
+    tensor.data_type = data_type
+    tensor.name = name
+
+    if data_type == TensorProto.STRING and raw:
+        raise TypeError("Can not use raw_data to store string type.")
+
+    np_dtype = tensor_dtype_to_np_dtype(data_type)
+
+    # Check number of vals specified equals tensor size
+    expected_size = 1
+    if raw:
+        # NumPy doesn't have BFLOAT16. TENSOR_TYPE_MAP maps it to float32, which has the wrong itemsize.
+        if data_type == TensorProto.BFLOAT16:
+            expected_size = 2
+        elif data_type in (
+            TensorProto.FLOAT8E4M3FN,
+            TensorProto.FLOAT8E4M3FNUZ,
+            TensorProto.FLOAT8E5M2,
+            TensorProto.FLOAT8E5M2FNUZ,
+        ):
+            expected_size = 1
+        # NumPy doesn't have INT4. It is packed in couples to UINT8 buffers.
+        elif data_type in (TensorProto.UINT4, TensorProto.INT4):
+            expected_size = 0.5  # type: ignore[assignment]
+        else:
+            expected_size = np_dtype.itemsize
+
+    if type(vals) is np.ndarray and len(vals.shape) > 1:
+        vals = vals.flatten()
+    for d in dims:
+        expected_size *= d
+
+    if len(vals) != expected_size:
+        # padding of half a byte is acceptable for 4bit types
+        if not (
+            data_type in (TensorProto.UINT4, TensorProto.INT4)
+            and len(vals) == expected_size + 0.5
+        ):
+            raise ValueError(
+                f"Number of values does not match tensor's size. Expected {expected_size}, but it is {len(vals)}. "
+            )
+
+    if raw:
+        tensor.raw_data = vals
+    else:
+        if data_type in (TensorProto.COMPLEX64, TensorProto.COMPLEX128):
+            vals = split_complex_to_pairs(vals)
+        elif data_type == TensorProto.FLOAT16:
+            vals = (
+                np.array(vals).astype(np_dtype).view(dtype=np.uint16).flatten().tolist()
+            )
+        elif data_type in (
+            TensorProto.BFLOAT16,
+            TensorProto.FLOAT8E4M3FN,
+            TensorProto.FLOAT8E4M3FNUZ,
+            TensorProto.FLOAT8E5M2,
+            TensorProto.FLOAT8E5M2FNUZ,
+        ):
+            fcast = {
+                TensorProto.BFLOAT16: float32_to_bfloat16,
+                TensorProto.FLOAT8E4M3FN: float32_to_float8e4m3,
+                TensorProto.FLOAT8E4M3FNUZ: lambda *args: float32_to_float8e4m3(  # type: ignore[misc]
+                    *args, uz=True
+                ),
+                TensorProto.FLOAT8E5M2: float32_to_float8e5m2,
+                TensorProto.FLOAT8E5M2FNUZ: lambda *args: float32_to_float8e5m2(  # type: ignore[misc]
+                    *args, fn=True, uz=True
+                ),
+            }[
+                data_type  # type: ignore[index]
+            ]
+            vals = list(
+                map(  # type: ignore[call-overload]
+                    fcast,
+                    np.array(vals).astype(np_dtype).flatten().tolist(),
+                )
+            )
+        elif data_type in (
+            TensorProto.UINT4,
+            TensorProto.INT4,
+        ):
+            signed = data_type == TensorProto.INT4
+
+            # Two packed 4-bit values must be represented as a single uint8 value.
+            # Therefore, pack_float32_to_4bit() sets the dtype of the output vals
+            # to uint8 regardless of the value of 'signed'. Using int8 would cause
+            # the size of int4 tensors to increase ~5x if the tensor contains negative values (due to
+            # the way negative values are serialized by protobuf).
+            vals = pack_float32_to_4bit(vals, signed=signed).flatten().tolist()
+        elif data_type == TensorProto.BOOL:
+            vals = np.array(vals).astype(int)
+        elif data_type == TensorProto.STRING:
+            vals = np.array(vals).astype(bytes)
+        field = tensor_dtype_to_field(data_type)
+        getattr(tensor, field).extend(vals)
+    tensor.dims.extend(dims)
+    return tensordef make_node(
+    op_type: str,
+    inputs: Sequence[str],
+    outputs: Sequence[str],
+    name: str | None = None,
+    doc_string: str | None = None,
+    domain: str | None = None,
+    overload: str | None = None,
+    **kwargs: Any,
+) -> NodeProto:
+    """Construct a NodeProto.
+
+    Args:
+        op_type (string): The name of the operator to construct
+        inputs (list of string): list of input names
+        outputs (list of string): list of output names
+        name (string, default None): optional unique identifier for NodeProto
+        doc_string (string, default None): optional documentation string for NodeProto
+        domain (string, default None): optional domain for NodeProto.
+            If it's None, we will just use default domain (which is empty)
+        overload (string, default None): optional field, used to
+            resolve calls to model-local functions
+        **kwargs (dict): the attributes of the node.  The acceptable values
+            are documented in :func:`make_attribute`.
+
+    Returns:
+        NodeProto
+    """
+    node = NodeProto()
+    node.op_type = op_type
+    node.input.extend(inputs)
+    node.output.extend(outputs)
+    if name:
+        node.name = name
+    if doc_string:
+        node.doc_string = doc_string
+    if domain is not None:
+        node.domain = domain
+    if overload is not None:
+        node.overload = overload
+    if kwargs:
+        node.attribute.extend(
+            make_attribute(key, value)
+            for key, value in sorted(kwargs.items())
+            if value is not None
+        )
+    return node

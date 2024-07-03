@@ -269,4 +269,90 @@ def partition_pauli_group(n_qubits: int) -> List[List[str]]:
             binary_pauli[n_qubits + wire_map[wire]] = 1
         elif pauli_type == "Z":
             binary_pauli[n_qubits + wire_map[wire]] = 1
-    return binary_pauli
+    return binary_paulidef is_pauli_word(observable):
+    """
+    Checks if an observable instance consists only of Pauli and Identity Operators.
+
+    A Pauli word can be either:
+
+    * A single pauli operator (see :class:`~.PauliX` for an example).
+
+    * A :class:`.Tensor` instance containing Pauli operators.
+
+    * A :class:`.Prod` instance containing Pauli operators.
+
+    * A :class:`.SProd` instance containing a valid Pauli word.
+
+    * A :class:`.Hamiltonian` instance with only one term.
+
+    .. Warning::
+
+        This function will only confirm that all operators are Pauli or Identity operators,
+        and not whether the Observable is mathematically a Pauli word.
+        If an Observable consists of multiple Pauli operators targeting the same wire, the
+        function will return ``True`` regardless of any complex coefficients.
+
+
+    Args:
+        observable (~.Operator): the operator to be examined
+
+    Returns:
+        bool: true if the input observable is a Pauli word, false otherwise.
+
+    **Example**
+
+    >>> is_pauli_word(qml.Identity(0))
+    True
+    >>> is_pauli_word(qml.X(0) @ qml.Z(2))
+    True
+    >>> is_pauli_word(qml.Z(0) @ qml.Hadamard(1))
+    False
+    >>> is_pauli_word(4 * qml.X(0) @ qml.Z(0))
+    True
+    """
+    return _is_pauli_word(observable) or (len(observable.pauli_rep or []) == 1)def qwc_complement_adj_matrix(binary_observables):
+    """Obtains the adjacency matrix for the complementary graph of the qubit-wise commutativity
+    graph for a given set of observables in the binary representation.
+
+    The qubit-wise commutativity graph for a set of Pauli words has a vertex for each Pauli word,
+    and two nodes are connected if and only if the corresponding Pauli words are qubit-wise
+    commuting.
+
+    Args:
+        binary_observables (array[array[int]]): a matrix whose rows are the Pauli words in the
+            binary vector representation
+
+    Returns:
+        array[array[int]]: the adjacency matrix for the complement of the qubit-wise commutativity graph
+
+    Raises:
+        ValueError: if input binary observables contain components which are not strictly binary
+
+    **Example**
+
+    >>> binary_observables
+    array([[1., 0., 1., 0., 0., 1.],
+           [0., 1., 1., 1., 0., 1.],
+           [0., 0., 0., 1., 0., 0.]])
+
+    >>> qwc_complement_adj_matrix(binary_observables)
+    array([[0., 1., 1.],
+           [1., 0., 0.],
+           [1., 0., 0.]])
+    """
+
+    if isinstance(binary_observables, (list, tuple)):
+        binary_observables = np.asarray(binary_observables)
+
+    if not np.array_equal(binary_observables, binary_observables.astype(bool)):
+        raise ValueError(f"Expected a binary array, instead got {binary_observables}")
+
+    m_terms = np.shape(binary_observables)[0]
+    adj = np.zeros((m_terms, m_terms))
+
+    for i in range(m_terms):
+        for j in range(i + 1, m_terms):
+            adj[i, j] = int(not is_qwc(binary_observables[i], binary_observables[j]))
+            adj[j, i] = adj[i, j]
+
+    return adj

@@ -71,4 +71,37 @@ def start_processes(
             " torch.multiprocessing.start_processes(...)"
         )
         warnings.warn(msg, FutureWarning, stacklevel=2)
-    return start_processes(fn, args, nprocs, join, daemon, start_method="spawn")
+    return start_processes(fn, args, nprocs, join, daemon, start_method="spawn")def start_processes(
+    fn, args=(), nprocs=1, join=True, daemon=False, start_method="spawn"
+):
+    mp = multiprocessing.get_context(start_method)
+    error_files = []
+    processes = []
+    for i in range(nprocs):
+        # Each process is assigned a file to write tracebacks to.  We
+        # use the file being non-empty to indicate an exception
+        # occurred (vs an expected shutdown).  Note: this previously
+        # used a multiprocessing.Queue but that can be prone to
+        # deadlocks, so we went with a simpler solution for a one-shot
+        # message between processes.
+        tf = tempfile.NamedTemporaryFile(
+            prefix="pytorch-errorfile-", suffix=".pickle", delete=False
+        )
+        tf.close()
+        os.unlink(tf.name)
+        process = mp.Process(
+            target=_wrap,
+            args=(fn, i, args, tf.name),
+            daemon=daemon,
+        )
+        process.start()
+        error_files.append(tf.name)
+        processes.append(process)
+
+    context = ProcessContext(processes, error_files)
+    if not join:
+        return context
+
+    # Loop on join until it returns True or raises an exception.
+    while not context.join():
+        pass

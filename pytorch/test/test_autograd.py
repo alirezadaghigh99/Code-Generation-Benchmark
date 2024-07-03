@@ -26,4 +26,5 @@
 
         return wrapper        def foo(t1, t2, t3):
             res = MyFunction.apply(t1, t2, scale, t3)
-            return res[1], res[4], res[6]
+            return res[1], res[4], res[6]        def where(cond, x, y):
+            return torch.where(cond, x, y)

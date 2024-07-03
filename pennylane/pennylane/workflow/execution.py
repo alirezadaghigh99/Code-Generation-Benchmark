@@ -31,4 +31,20 @@ def _cache_transform(tape: QuantumTape, cache: MutableMapping):
     # the transforms are invoked. Otherwise, ``cache_hit_postprocessing()`` may be called before the
     # result of the corresponding tape is placed in the cache by ``cache_miss_postprocessing()``.
     cache[tape.hash] = None
-    return [tape], cache_miss_postprocessing
+    return [tape], cache_miss_postprocessingdef _apply_cache_transform(fn: Callable, cache: Optional[MutableMapping]) -> Callable:
+    """Wraps the given execution function with ``_cache_transform()`` using the provided cache.
+
+    Args:
+        fn (Callable): The execution function to be augmented with caching. This function should
+            have the signature ``fn(tapes, **kwargs)`` and return ``list[tensor_like]`` with the
+            same length as the input ``tapes``.
+        cache (None | MutableMapping): The cache to use. If ``None``, caching will not occur.
+    """
+    if cache is None:
+        return fn
+
+    def execution_function_with_caching(tapes):
+        tapes, post_processing_fn = _cache_transform(tapes, cache=cache)
+        return post_processing_fn(fn(tapes))
+
+    return execution_function_with_caching

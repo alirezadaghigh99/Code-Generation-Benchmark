@@ -11,4 +11,10 @@
             return torch.stft(input, n_fft, return_complex=True)            def addmm(mat, mat1, mat2):
                 a = mat.addmm(mat1, mat2)
                 b = mat.addmm(mat1, mat2, alpha=1.0, beta=1.0)
-                return a + b
+                return a + b        def profile(func, X):
+            with torch.autograd.profiler.profile() as prof:
+                func(X)
+            return [e.name for e in prof.function_events]                def enable_grad():
+                    torch.set_grad_enabled(True)        def randint():
+            return torch.randint(0, 5, [1, 2])        def add(a, b):
+            return a + b

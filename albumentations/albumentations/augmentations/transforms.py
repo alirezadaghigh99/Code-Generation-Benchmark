@@ -340,4 +340,439 @@ class Downscale(ImageOnlyTransform):
         return {"haze_list": haze_list, "fog_coef": fog_coef}
 
     def get_transform_init_args_names(self) -> tuple[str, str]:
-        return "fog_coef_range", "alpha_coef"
+        return "fog_coef_range", "alpha_coef"class MultiplicativeNoise(ImageOnlyTransform):
+    """Multiply image by a random number or array of numbers.
+
+    Args:
+        multiplier: If a single float, the image will be multiplied by this number.
+            If a tuple of floats, the multiplier will be a random number in the range `[multiplier[0], multiplier[1])`.
+            Default: (0.9, 1.1).
+        elementwise: If `False`, multiply all pixels in the image by a single random value sampled once.
+            If `True`, multiply image pixels by values that are pixelwise randomly sampled. Default: False.
+        p: Probability of applying the transform. Default: 0.5.
+
+    Targets:
+        image
+
+    Image types:
+        uint8, np.float32
+
+    """
+
+    class InitSchema(BaseTransformInitSchema):
+        multiplier: Annotated[tuple[float, float], AfterValidator(check_0plus), AfterValidator(nondecreasing)] = (
+            0.9,
+            1.1,
+        )
+        per_channel: bool | None = Field(
+            default=False,
+            description="Apply multiplier per channel.",
+            deprecated="Does not have any effect. Will be removed in future releases.",
+        )
+        elementwise: bool = Field(default=False, description="Apply multiplier element-wise to pixels.")
+
+    def __init__(
+        self,
+        multiplier: ScaleFloatType = (0.9, 1.1),
+        per_channel: bool | None = None,
+        elementwise: bool = False,
+        always_apply: bool | None = None,
+        p: float = 0.5,
+    ):
+        super().__init__(p=p, always_apply=always_apply)
+        self.multiplier = cast(Tuple[float, float], multiplier)
+        self.elementwise = elementwise
+
+    def apply(
+        self,
+        img: np.ndarray,
+        multiplier: float | np.ndarray,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        return multiply(img, multiplier)
+
+    def get_params_dependent_on_targets(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self.multiplier[0] == self.multiplier[1]:
+            return {"multiplier": self.multiplier[0]}
+
+        img = params["image"]
+
+        num_channels = get_num_channels(img)
+
+        shape = img.shape if self.elementwise else [num_channels]
+
+        multiplier = random_utils.uniform(self.multiplier[0], self.multiplier[1], shape).astype(np.float32)
+
+        return {"multiplier": multiplier}
+
+    @property
+    def targets_as_params(self) -> list[str]:
+        return ["image"]
+
+    def get_transform_init_args_names(self) -> tuple[str, ...]:
+        return "multiplier", "elementwise"class ImageCompression(ImageOnlyTransform):
+    """Decreases image quality by Jpeg, WebP compression of an image.
+
+    Args:
+        quality_range: tuple of bounds on the image quality i.e. (quality_lower, quality_upper).
+            Both values should be in [1, 100] range.
+        compression_type (ImageCompressionType): should be ImageCompressionType.JPEG or ImageCompressionType.WEBP.
+            Default: ImageCompressionType.JPEG
+
+    Targets:
+        image
+
+    Image types:
+        uint8, float32
+
+    """
+
+    class InitSchema(BaseTransformInitSchema):
+        quality_range: Annotated[tuple[int, int], AfterValidator(check_1plus), AfterValidator(nondecreasing)] = (
+            99,
+            100,
+        )
+
+        quality_lower: int | None = Field(
+            default=None,
+            description="Lower bound on the image quality",
+            ge=1,
+            le=100,
+        )
+        quality_upper: int | None = Field(
+            default=None,
+            description="Upper bound on the image quality",
+            ge=1,
+            le=100,
+        )
+        compression_type: ImageCompressionType = Field(
+            default=ImageCompressionType.JPEG,
+            description="Image compression format",
+        )
+
+        @model_validator(mode="after")
+        def validate_ranges(self) -> Self:
+            # Update the quality_range based on the non-None values of quality_lower and quality_upper
+            if self.quality_lower is not None or self.quality_upper is not None:
+                if self.quality_lower is not None:
+                    warn(
+                        "`quality_lower` is deprecated. Use `quality_range` as tuple"
+                        " (quality_lower, quality_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                if self.quality_upper is not None:
+                    warn(
+                        "`quality_upper` is deprecated. Use `quality_range` as tuple"
+                        " (quality_lower, quality_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                lower = self.quality_lower if self.quality_lower is not None else self.quality_range[0]
+                upper = self.quality_upper if self.quality_upper is not None else self.quality_range[1]
+                self.quality_range = (lower, upper)
+                # Clear the deprecated individual quality settings
+                self.quality_lower = None
+                self.quality_upper = None
+
+            # Validate the quality_range
+            if not (1 <= self.quality_range[0] <= MAX_JPEG_QUALITY and 1 <= self.quality_range[1] <= MAX_JPEG_QUALITY):
+                raise ValueError(f"Quality range values should be within [1, {MAX_JPEG_QUALITY}] range.")
+
+            return self
+
+    def __init__(
+        self,
+        quality_lower: int | None = None,
+        quality_upper: int | None = None,
+        compression_type: ImageCompressionType = ImageCompressionType.JPEG,
+        quality_range: tuple[int, int] = (99, 100),
+        always_apply: bool | None = None,
+        p: float = 0.5,
+    ):
+        super().__init__(p, always_apply)
+        self.quality_range = quality_range
+        self.compression_type = compression_type
+
+    def apply(self, img: np.ndarray, quality: int, image_type: Literal[".jpg", ".webp"], **params: Any) -> np.ndarray:
+        if img.ndim != MONO_CHANNEL_DIMENSIONS and img.shape[-1] not in (1, 3, 4):
+            msg = "ImageCompression transformation expects 1, 3 or 4 channel images."
+            raise TypeError(msg)
+        return fmain.image_compression(img, quality, image_type)
+
+    def get_params(self) -> dict[str, int | str]:
+        if self.compression_type == ImageCompressionType.JPEG:
+            image_type = ".jpg"
+        elif self.compression_type == ImageCompressionType.WEBP:
+            image_type = ".webp"
+        else:
+            raise ValueError(f"Unknown image compression type: {self.compression_type}")
+
+        return {
+            "quality": random.randint(self.quality_range[0], self.quality_range[1]),
+            "image_type": image_type,
+        }
+
+    def get_transform_init_args(self) -> dict[str, Any]:
+        return {
+            "quality_range": self.quality_range,
+            "compression_type": self.compression_type.value,
+        }class RandomRain(ImageOnlyTransform):
+    """Adds rain effects to an image.
+
+    Args:
+        slant_range (tuple[int, int]): tuple of type (slant_lower, slant_upper) representing the range for
+            rain slant angle.
+        drop_length (int): Length of the raindrops.
+        drop_width (int): Width of the raindrops.
+        drop_color (tuple[int, int, int]): Color of the rain drops in RGB format.
+        blur_value (int): Blur value for simulating rain effect. Rainy views are blurry.
+        brightness_coefficient (float): Coefficient to adjust the brightness of the image.
+            Rainy days are usually shady. Should be in the range (0, 1].
+        rain_type (Optional[str]): Type of rain to simulate. One of [None, "drizzle", "heavy", "torrential"].
+
+
+    Targets:
+        image
+
+    Image types:
+        uint8, float32
+
+    Reference:
+        https://github.com/UjjwalSaxena/Automold--Road-Augmentation-Library
+
+    """
+
+    class InitSchema(BaseTransformInitSchema):
+        slant_lower: int | None = Field(
+            default=None,
+            description="Lower bound for rain slant angle",
+        )
+        slant_upper: int | None = Field(
+            default=None,
+            description="Upper bound for rain slant angle",
+        )
+        slant_range: Annotated[tuple[float, float], AfterValidator(nondecreasing)] = Field(
+            default=(-10, 10),
+            description="tuple like (slant_lower, slant_upper) for rain slant angle",
+        )
+        drop_length: int = Field(default=20, description="Length of raindrops", ge=1)
+        drop_width: int = Field(default=1, description="Width of raindrops", ge=1)
+        drop_color: tuple[int, int, int] = Field(default=(200, 200, 200), description="Color of raindrops")
+        blur_value: int = Field(default=7, description="Blur value for simulating rain effect", ge=1)
+        brightness_coefficient: float = Field(
+            default=0.7,
+            description="Brightness coefficient for rainy effect",
+            gt=0,
+            le=1,
+        )
+        rain_type: RainMode | None = Field(default=None, description="Type of rain to simulate")
+
+        @model_validator(mode="after")
+        def validate_ranges(self) -> Self:
+            if self.slant_lower is not None or self.slant_upper is not None:
+                if self.slant_lower is not None:
+                    warn(
+                        "`slant_lower` deprecated. Use `slant_range` as tuple (slant_lower, slant_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                if self.slant_upper is not None:
+                    warn(
+                        "`slant_upper` deprecated. Use `slant_range` as tuple (slant_lower, slant_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                lower = self.slant_lower if self.slant_lower is not None else self.slant_range[0]
+                upper = self.slant_upper if self.slant_upper is not None else self.slant_range[1]
+                self.slant_range = (lower, upper)
+                self.slant_lower = None
+                self.slant_upper = None
+
+            # Validate the slant_range
+            if not (-MAX_RAIN_ANGLE <= self.slant_range[0] <= self.slant_range[1] <= MAX_RAIN_ANGLE):
+                raise ValueError(
+                    f"slant_range values should be increasing within [-{MAX_RAIN_ANGLE}, {MAX_RAIN_ANGLE}] range.",
+                )
+            return self
+
+    def __init__(
+        self,
+        slant_lower: int | None = None,
+        slant_upper: int | None = None,
+        slant_range: tuple[int, int] = (-10, 10),
+        drop_length: int = 20,
+        drop_width: int = 1,
+        drop_color: tuple[int, int, int] = (200, 200, 200),
+        blur_value: int = 7,
+        brightness_coefficient: float = 0.7,
+        rain_type: RainMode | None = None,
+        always_apply: bool | None = None,
+        p: float = 0.5,
+    ):
+        super().__init__(p=p, always_apply=always_apply)
+        self.slant_range = slant_range
+        self.drop_length = drop_length
+        self.drop_width = drop_width
+        self.drop_color = drop_color
+        self.blur_value = blur_value
+        self.brightness_coefficient = brightness_coefficient
+        self.rain_type = rain_type
+
+    def apply(
+        self,
+        img: np.ndarray,
+        slant: int,
+        drop_length: int,
+        rain_drops: list[tuple[int, int]],
+        **params: Any,
+    ) -> np.ndarray:
+        return fmain.add_rain(
+            img,
+            slant,
+            drop_length,
+            self.drop_width,
+            self.drop_color,
+            self.blur_value,
+            self.brightness_coefficient,
+            rain_drops,
+        )
+
+    @property
+    def targets_as_params(self) -> list[str]:
+        return ["image"]
+
+    def get_params_dependent_on_targets(self, params: dict[str, Any]) -> dict[str, Any]:
+        img = params["image"]
+        slant = int(random.uniform(*self.slant_range))
+
+        height, width = img.shape[:2]
+        area = height * width
+
+        if self.rain_type == "drizzle":
+            num_drops = area // 770
+            drop_length = 10
+        elif self.rain_type == "heavy":
+            num_drops = width * height // 600
+            drop_length = 30
+        elif self.rain_type == "torrential":
+            num_drops = area // 500
+            drop_length = 60
+        else:
+            drop_length = self.drop_length
+            num_drops = area // 600
+
+        rain_drops = []
+
+        for _ in range(num_drops):  # If You want heavy rain, try increasing this
+            x = random.randint(slant, width) if slant < 0 else random.randint(0, width - slant)
+
+            y = random.randint(0, height - drop_length)
+
+            rain_drops.append((x, y))
+
+        return {"drop_length": drop_length, "slant": slant, "rain_drops": rain_drops}
+
+    def get_transform_init_args_names(self) -> tuple[str, ...]:
+        return (
+            "slant_range",
+            "drop_length",
+            "drop_width",
+            "drop_color",
+            "blur_value",
+            "brightness_coefficient",
+            "rain_type",
+        )class RandomSnow(ImageOnlyTransform):
+    """Bleach out some pixel values imitating snow.
+
+    Args:
+        snow_point_range (tuple): tuple of bounds on the amount of snow i.e. (snow_point_lower, snow_point_upper).
+            Both values should be in the (0, 1) range. Default: (0.1, 0.3).
+        brightness_coeff (float): Coefficient applied to increase the brightness of pixels
+            below the snow_point threshold. Larger values lead to more pronounced snow effects.
+            Should be > 0. Default: 2.5.
+        p (float): Probability of applying the transform. Default: 0.5.
+
+    Targets:
+        image
+
+    Image types:
+        uint8, float32
+
+    Reference:
+        https://github.com/UjjwalSaxena/Automold--Road-Augmentation-Library
+
+    """
+
+    class InitSchema(BaseTransformInitSchema):
+        snow_point_range: Annotated[tuple[float, float], AfterValidator(check_01), AfterValidator(nondecreasing)] = (
+            Field(
+                default=(0.1, 0.3),
+                description="lower and upper bound on the amount of snow as tuple (snow_point_lower, snow_point_upper)",
+            )
+        )
+        snow_point_lower: float | None = Field(
+            default=None,
+            description="Lower bound of the amount of snow",
+            gt=0,
+            lt=1,
+        )
+        snow_point_upper: float | None = Field(
+            default=None,
+            description="Upper bound of the amount of snow",
+            gt=0,
+            lt=1,
+        )
+        brightness_coeff: float = Field(default=2.5, description="Brightness coefficient, must be > 0", gt=0)
+
+        @model_validator(mode="after")
+        def validate_ranges(self) -> Self:
+            if self.snow_point_lower is not None or self.snow_point_upper is not None:
+                if self.snow_point_lower is not None:
+                    warn(
+                        "`snow_point_lower` deprecated. Use `snow_point_range` as tuple"
+                        " (snow_point_lower, snow_point_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                if self.snow_point_upper is not None:
+                    warn(
+                        "`snow_point_upper` deprecated. Use `snow_point_range` as tuple"
+                        "(snow_point_lower, snow_point_upper) instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                lower = self.snow_point_lower if self.snow_point_lower is not None else self.snow_point_range[0]
+                upper = self.snow_point_upper if self.snow_point_upper is not None else self.snow_point_range[1]
+                self.snow_point_range = (lower, upper)
+                self.snow_point_lower = None
+                self.snow_point_upper = None
+
+            # Validate the snow_point_range
+            if not (0 < self.snow_point_range[0] <= self.snow_point_range[1] < 1):
+                raise ValueError("snow_point_range values should be increasing within (0, 1) range.")
+
+            return self
+
+    def __init__(
+        self,
+        snow_point_lower: float | None = None,
+        snow_point_upper: float | None = None,
+        brightness_coeff: float = 2.5,
+        snow_point_range: tuple[float, float] = (0.1, 0.3),
+        always_apply: bool | None = None,
+        p: float = 0.5,
+    ):
+        super().__init__(p, always_apply)
+
+        self.snow_point_range = snow_point_range
+        self.brightness_coeff = brightness_coeff
+
+    def apply(self, img: np.ndarray, snow_point: float, **params: Any) -> np.ndarray:
+        return fmain.add_snow(img, snow_point, self.brightness_coeff)
+
+    def get_params(self) -> dict[str, np.ndarray]:
+        return {"snow_point": random.uniform(*self.snow_point_range)}
+
+    def get_transform_init_args_names(self) -> tuple[str, str]:
+        return "snow_point_range", "brightness_coeff"

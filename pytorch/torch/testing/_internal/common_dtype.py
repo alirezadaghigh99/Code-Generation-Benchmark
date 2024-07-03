@@ -6,4 +6,5 @@ def get_all_math_dtypes(device) -> List[torch.dtype]:
         )
         + get_all_complex_dtypes()
     )def integral_types():
-    return _integral_types
+    return _integral_typesdef all_types_and_complex_and(*dtypes):
+    return _all_types_and_complex + _validate_dtypes(*dtypes)

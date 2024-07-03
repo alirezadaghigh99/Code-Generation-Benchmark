@@ -72,4 +72,22 @@ def aom(scores, n_buckets=5, method='static', bootstrap_estimators=False,
 
     """
     return combo_moa(scores, n_buckets, method, bootstrap_estimators,
-                     random_state)
+                     random_state)def average(scores, estimator_weights=None):
+    """Combination method to merge the outlier scores from multiple estimators
+    by taking the average.
+
+    Parameters
+    ----------
+    scores : numpy array of shape (n_samples, n_estimators)
+        Score matrix from multiple estimators on the same samples.
+
+    estimator_weights : list of shape (1, n_estimators)
+        If specified, using weighted average
+
+    Returns
+    -------
+    combined_scores : numpy array of shape (n_samples, )
+        The combined outlier scores.
+
+    """
+    return combo_average(scores, estimator_weights)

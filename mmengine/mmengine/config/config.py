@@ -227,4 +227,76 @@
         cfg_text_list.append(cfg_text)
         cfg_text = '\n'.join(cfg_text_list)
 
-        return cfg_dict, cfg_text, env_variables
+        return cfg_dict, cfg_text, env_variables    def fromfile(filename: Union[str, Path],
+                 use_predefined_variables: bool = True,
+                 import_custom_modules: bool = True,
+                 use_environment_variables: bool = True,
+                 lazy_import: Optional[bool] = None,
+                 format_python_code: bool = True) -> 'Config':
+        """Build a Config instance from config file.
+
+        Args:
+            filename (str or Path): Name of config file.
+            use_predefined_variables (bool, optional): Whether to use
+                predefined variables. Defaults to True.
+            import_custom_modules (bool, optional): Whether to support
+                importing custom modules in config. Defaults to None.
+            use_environment_variables (bool, optional): Whether to use
+                environment variables. Defaults to True.
+            lazy_import (bool): Whether to load config in `lazy_import` mode.
+                If it is `None`, it will be deduced by the content of the
+                config file. Defaults to None.
+            format_python_code (bool): Whether to format Python code by yapf.
+                Defaults to True.
+
+        Returns:
+            Config: Config instance built from config file.
+        """
+        filename = str(filename) if isinstance(filename, Path) else filename
+        if lazy_import is False or \
+           lazy_import is None and not Config._is_lazy_import(filename):
+            cfg_dict, cfg_text, env_variables = Config._file2dict(
+                filename, use_predefined_variables, use_environment_variables,
+                lazy_import)
+            if import_custom_modules and cfg_dict.get('custom_imports', None):
+                try:
+                    import_modules_from_strings(**cfg_dict['custom_imports'])
+                except ImportError as e:
+                    err_msg = (
+                        'Failed to import custom modules from '
+                        f"{cfg_dict['custom_imports']}, the current sys.path "
+                        'is: ')
+                    for p in sys.path:
+                        err_msg += f'\n    {p}'
+                    err_msg += (
+                        '\nYou should set `PYTHONPATH` to make `sys.path` '
+                        'include the directory which contains your custom '
+                        'module')
+                    raise ImportError(err_msg) from e
+            return Config(
+                cfg_dict,
+                cfg_text=cfg_text,
+                filename=filename,
+                env_variables=env_variables,
+            )
+        else:
+            # Enable lazy import when parsing the config.
+            # Using try-except to make sure ``ConfigDict.lazy`` will be reset
+            # to False. See more details about lazy in the docstring of
+            # ConfigDict
+            ConfigDict.lazy = True
+            try:
+                cfg_dict, imported_names = Config._parse_lazy_import(filename)
+            except Exception as e:
+                raise e
+            finally:
+                # disable lazy import to get the real type. See more details
+                # about lazy in the docstring of ConfigDict
+                ConfigDict.lazy = False
+
+            cfg = Config(
+                cfg_dict,
+                filename=filename,
+                format_python_code=format_python_code)
+            object.__setattr__(cfg, '_imported_names', imported_names)
+            return cfg

@@ -44,4 +44,16 @@ def get_label_n(y, y_pred, n=None):
     threshold = percentile(y_pred, 100 * (1 - outliers_fraction))
     y_pred = (y_pred > threshold).astype('int')
 
-    return y_pred
+    return y_preddef check_detector(detector):
+    """Checks if fit and decision_function methods exist for given detector
+
+    Parameters
+    ----------
+    detector : pyod.models
+        Detector instance for which the check is performed.
+
+    """
+
+    if not hasattr(detector, 'fit') or not hasattr(detector,
+                                                   'decision_function'):
+        raise AttributeError("%s is not a detector instance." % (detector))

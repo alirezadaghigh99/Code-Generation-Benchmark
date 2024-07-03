@@ -71,4 +71,30 @@ def download_from_hf_hub(
     download_duration = time.time() - download_start
     log.info(
         f'Downloaded model {model} from Hugging Face Hub in {download_duration} seconds',
-    )
+    )def download_from_http_fileserver(
+    url: str,
+    save_dir: str,
+    ignore_cert: bool = False,
+):
+    """Downloads files from a remote HTTP file server.
+
+    Args:
+        url (str): The base URL where the files are located.
+        save_dir (str): The directory to save downloaded files to.
+        ignore_cert (bool): Whether or not to ignore the validity of the SSL certificate of the remote server.
+            Defaults to False.
+            WARNING: Setting this to true is *not* secure, as no certificate verification will be performed.
+    """
+    with requests.Session() as session:
+        # Temporarily suppress noisy SSL certificate verification warnings if ignore_cert is set to True
+        with warnings.catch_warnings():
+            if ignore_cert:
+                warnings.simplefilter('ignore', category=InsecureRequestWarning)
+
+            _recursive_download(
+                session,
+                url,
+                '',
+                save_dir,
+                ignore_cert=ignore_cert,
+            )

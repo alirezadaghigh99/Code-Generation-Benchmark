@@ -212,4 +212,31 @@ class Sigmoid(Module):
 
     def extra_repr(self) -> str:
         inplace_str = "inplace=True" if self.inplace else ""
+        return inplace_strclass ReLU6(Hardtanh):
+    r"""Applies the ReLU6 function element-wise.
+
+    .. math::
+        \text{ReLU6}(x) = \min(\max(0,x), 6)
+
+    Args:
+        inplace: can optionally do the operation in-place. Default: ``False``
+
+    Shape:
+        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+        - Output: :math:`(*)`, same shape as the input.
+
+    .. image:: ../scripts/activation_images/ReLU6.png
+
+    Examples::
+
+        >>> m = nn.ReLU6()
+        >>> input = torch.randn(2)
+        >>> output = m(input)
+    """
+
+    def __init__(self, inplace: bool = False):
+        super().__init__(0.0, 6.0, inplace)
+
+    def extra_repr(self) -> str:
+        inplace_str = "inplace=True" if self.inplace else ""
         return inplace_str

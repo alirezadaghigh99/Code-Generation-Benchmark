@@ -167,4 +167,108 @@ def allclose(a, b, rtol=1e-05, atol=1e-08, **kwargs):
         except (AttributeError, TypeError, ImportError):
             dtype = getattr(dtype, "name", dtype)
 
-    return ar.astype(tensor, ar.to_backend_dtype(dtype, like=ar.infer_backend(tensor)))
+    return ar.astype(tensor, ar.to_backend_dtype(dtype, like=ar.infer_backend(tensor)))def allclose(a, b, rtol=1e-05, atol=1e-08, **kwargs):
+    """Wrapper around np.allclose, allowing tensors ``a`` and ``b``
+    to differ in type"""
+    try:
+        # Some frameworks may provide their own allclose implementation.
+        # Try and use it if available.
+        res = np.allclose(a, b, rtol=rtol, atol=atol, **kwargs)
+    except (TypeError, AttributeError, ImportError, RuntimeError):
+        # Otherwise, convert the input to NumPy arrays.
+        #
+        # TODO: replace this with a bespoke, framework agnostic
+        # low-level implementation to avoid the NumPy conversion:
+        #
+        #    np.abs(a - b) <= atol + rtol * np.abs(b)
+        #
+        t1 = ar.to_numpy(a)
+        t2 = ar.to_numpy(b)
+        res = np.allclose(t1, t2, rtol=rtol, atol=atol, **kwargs)
+
+    return resdef get_interface(*values):
+    """Determines the correct framework to dispatch to given a tensor-like object or a
+    sequence of tensor-like objects.
+
+    Args:
+        *values (tensor_like): variable length argument list with single tensor-like objects
+
+    Returns:
+        str: the name of the interface
+
+    To determine the framework to dispatch to, the following rules
+    are applied:
+
+    * Tensors that are incompatible (such as Torch, TensorFlow and Jax tensors)
+      cannot both be present.
+
+    * Autograd tensors *may* be present alongside Torch, TensorFlow and Jax tensors,
+      but Torch, TensorFlow and Jax take precendence; the autograd arrays will
+      be treated as non-differentiable NumPy arrays. A warning will be raised
+      suggesting that vanilla NumPy be used instead.
+
+    * Vanilla NumPy arrays and SciPy sparse matrices can be used alongside other tensor objects;
+      they will always be treated as non-differentiable constants.
+
+    .. warning::
+        ``get_interface`` defaults to ``"numpy"`` whenever Python built-in objects are passed.
+        I.e. a list or tuple of ``torch`` tensors will be identified as ``"numpy"``:
+
+        >>> get_interface([torch.tensor([1]), torch.tensor([1])])
+        "numpy"
+
+        The correct usage in that case is to unpack the arguments ``get_interface(*[torch.tensor([1]), torch.tensor([1])])``.
+
+    """
+
+    if len(values) == 1:
+        return _get_interface_of_single_tensor(values[0])
+
+    interfaces = {_get_interface_of_single_tensor(v) for v in values}
+
+    if len(interfaces - {"numpy", "scipy", "autograd"}) > 1:
+        # contains multiple non-autograd interfaces
+        raise ValueError("Tensors contain mixed types; cannot determine dispatch library")
+
+    non_numpy_scipy_interfaces = set(interfaces) - {"numpy", "scipy"}
+
+    if len(non_numpy_scipy_interfaces) > 1:
+        # contains autograd and another interface
+        warnings.warn(
+            f"Contains tensors of types {non_numpy_scipy_interfaces}; dispatch will prioritize "
+            "TensorFlow, PyTorch, and  Jax over Autograd. Consider replacing Autograd with vanilla NumPy.",
+            UserWarning,
+        )
+
+    if "tensorflow" in interfaces:
+        return "tensorflow"
+
+    if "torch" in interfaces:
+        return "torch"
+
+    if "jax" in interfaces:
+        return "jax"
+
+    if "autograd" in interfaces:
+        return "autograd"
+
+    return "numpy"def allclose(a, b, rtol=1e-05, atol=1e-08, **kwargs):
+    """Wrapper around np.allclose, allowing tensors ``a`` and ``b``
+    to differ in type"""
+    try:
+        # Some frameworks may provide their own allclose implementation.
+        # Try and use it if available.
+        res = np.allclose(a, b, rtol=rtol, atol=atol, **kwargs)
+    except (TypeError, AttributeError, ImportError, RuntimeError):
+        # Otherwise, convert the input to NumPy arrays.
+        #
+        # TODO: replace this with a bespoke, framework agnostic
+        # low-level implementation to avoid the NumPy conversion:
+        #
+        #    np.abs(a - b) <= atol + rtol * np.abs(b)
+        #
+        t1 = ar.to_numpy(a)
+        t2 = ar.to_numpy(b)
+        res = np.allclose(t1, t2, rtol=rtol, atol=atol, **kwargs)
+
+    return res
