@@ -1,11 +1,23 @@
-    def _drop_extra_matches(matches: np.ndarray) -> np.ndarray:
+    def compute_average_precision(recall: np.ndarray, precision: np.ndarray) -> float:
         """
-        Deduplicate matches. If there are multiple matches for the same true or
-        predicted box, only the one with the highest IoU is kept.
+        Compute the average precision using 101-point interpolation (COCO), given
+            the recall and precision curves.
+
+        Args:
+            recall (np.ndarray): The recall curve.
+            precision (np.ndarray): The precision curve.
+
+        Returns:
+            float: Average precision.
         """
-        if matches.shape[0] > 0:
-            matches = matches[matches[:, 2].argsort()[::-1]]
-            matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-            matches = matches[matches[:, 2].argsort()[::-1]]
-            matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-        return matches
+        extended_recall = np.concatenate(([0.0], recall, [1.0]))
+        extended_precision = np.concatenate(([1.0], precision, [0.0]))
+        max_accumulated_precision = np.flip(
+            np.maximum.accumulate(np.flip(extended_precision))
+        )
+        interpolated_recall_levels = np.linspace(0, 1, 101)
+        interpolated_precision = np.interp(
+            interpolated_recall_levels, extended_recall, max_accumulated_precision
+        )
+        average_precision = np.trapz(interpolated_precision, interpolated_recall_levels)
+        return average_precision

@@ -1,2 +1,2 @@
-class SourceConnectionError(StreamError):
+class EndOfStreamError(StreamError):
     pass

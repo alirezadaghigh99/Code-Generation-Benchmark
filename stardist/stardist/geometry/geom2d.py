@@ -1,18 +1,13 @@
-def polygons_to_label_coord(coord, shape, labels=None):
-    """renders polygons to image of given shape
+def star_dist(a, n_rays=32, grid=(1,1), mode='cpp'):
+    """'a' assumbed to be a label image with integer values that encode object ids. id 0 denotes background."""
 
-    coord.shape   = (n_polys, n_rays)
-    """
-    coord = np.asarray(coord)
-    if labels is None: labels = np.arange(len(coord))
+    n_rays >= 3 or _raise(ValueError("need 'n_rays' >= 3"))
 
-    _check_label_array(labels, "labels")
-    assert coord.ndim==3 and coord.shape[1]==2 and len(coord)==len(labels)
-
-    lbl = np.zeros(shape,np.int32)
-
-    for i,c in zip(labels,coord):
-        rr,cc = polygon(*c, shape)
-        lbl[rr,cc] = i+1
-
-    return lbl
+    if mode == 'python':
+        return _py_star_dist(a, n_rays, grid=grid)
+    elif mode == 'cpp':
+        return _cpp_star_dist(a, n_rays, grid=grid)
+    elif mode == 'opencl':
+        return _ocl_star_dist(a, n_rays, grid=grid)
+    else:
+        _raise(ValueError("Unknown mode %s" % mode))

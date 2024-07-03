@@ -1,20 +1,41 @@
-class IntermediateLayerGetter(Model):
-    """Implements an intermediate layer getter
+def conv_sequence(
+    out_channels: int,
+    activation: Optional[Union[str, Callable]] = None,
+    bn: bool = False,
+    padding: str = "same",
+    kernel_initializer: str = "he_normal",
+    **kwargs: Any,
+) -> List[layers.Layer]:
+    """Builds a convolutional-based layer sequence
 
-    >>> from tensorflow.keras.applications import ResNet50
-    >>> from doctr.models import IntermediateLayerGetter
-    >>> target_layers = ["conv2_block3_out", "conv3_block4_out", "conv4_block6_out", "conv5_block3_out"]
-    >>> feat_extractor = IntermediateLayerGetter(ResNet50(include_top=False, pooling=False), target_layers)
+    >>> from tensorflow.keras import Sequential
+    >>> from doctr.models import conv_sequence
+    >>> module = Sequential(conv_sequence(32, 'relu', True, kernel_size=3, input_shape=[224, 224, 3]))
 
     Args:
     ----
-        model: the model to extract feature maps from
-        layer_names: the list of layers to retrieve the feature map from
+        out_channels: number of output channels
+        activation: activation to be used (default: no activation)
+        bn: should a batch normalization layer be added
+        padding: padding scheme
+        kernel_initializer: kernel initializer
+        **kwargs: additional arguments to be passed to the convolutional layer
+
+    Returns:
+    -------
+        list of layers
     """
+    # No bias before Batch norm
+    kwargs["use_bias"] = kwargs.get("use_bias", not bn)
+    # Add activation directly to the conv if there is no BN
+    kwargs["activation"] = activation if not bn else None
+    conv_seq = [layers.Conv2D(out_channels, padding=padding, kernel_initializer=kernel_initializer, **kwargs)]
 
-    def __init__(self, model: Model, layer_names: List[str]) -> None:
-        intermediate_fmaps = [model.get_layer(layer_name).get_output_at(0) for layer_name in layer_names]
-        super().__init__(model.input, outputs=intermediate_fmaps)
+    if bn:
+        conv_seq.append(layers.BatchNormalization())
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
+    if (isinstance(activation, str) or callable(activation)) and bn:
+        # Activation function can either be a string or a function ('relu' or tf.nn.relu)
+        conv_seq.append(layers.Activation(activation))
+
+    return conv_seq

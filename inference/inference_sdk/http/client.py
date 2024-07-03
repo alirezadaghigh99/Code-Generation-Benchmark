@@ -1,6 +1,7 @@
-    def list_loaded_models(self) -> RegisteredModels:
-        self.__ensure_v1_client_mode()
-        response = requests.get(f"{self.__api_url}/model/registry")
-        response.raise_for_status()
-        response_payload = response.json()
-        return RegisteredModels.from_dict(response_payload)
+    def use_model(self, model_id: str) -> Generator["InferenceHTTPClient", None, None]:
+        previous_model = self.__selected_model
+        self.__selected_model = model_id
+        try:
+            yield self
+        finally:
+            self.__selected_model = previous_model

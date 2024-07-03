@@ -1,2 +1,2 @@
-def get_last_chunk_of_selector(selector: str) -> str:
-    return selector.split(".")[-1]
+def get_output_names(outputs: List[JsonField]) -> Set[str]:
+    return {construct_output_name(name=output.name) for output in outputs}

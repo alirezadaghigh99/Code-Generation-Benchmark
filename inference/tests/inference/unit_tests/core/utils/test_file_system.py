@@ -1,3 +1,3 @@
-def assert_text_file_content_correct(file_path: str, content: str) -> None:
-    with open(file_path) as f:
+def assert_bytes_file_content_correct(file_path: str, content: bytes) -> None:
+    with open(file_path, "rb") as f:
         assert f.read() == content

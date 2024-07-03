@@ -1,3 +1,28 @@
+class TaskAlignedAssigner(BaseAssigner):
+    """Task aligned assigner used in the paper:
+    `TOOD: Task-aligned One-stage Object Detection.
+    <https://arxiv.org/abs/2108.07755>`_.
+
+    Assign a corresponding gt bbox or background to each predicted bbox.
+    Each bbox will be assigned with `0` or a positive integer
+    indicating the ground truth index.
+
+    - 0: negative sample, no assigned gt
+    - positive integer: positive sample, index (1-based) of assigned gt
+
+    Args:
+        topk (int): number of bbox selected in each level
+        iou_calculator (:obj:`ConfigDict` or dict): Config dict for iou
+            calculator. Defaults to ``dict(type='BboxOverlaps2D')``
+    """
+
+    def __init__(self,
+                 topk: int,
+                 iou_calculator: ConfigType = dict(type='BboxOverlaps2D')):
+        assert topk >= 1
+        self.topk = topk
+        self.iou_calculator = TASK_UTILS.build(iou_calculator)
+
     def assign(self,
                pred_instances: InstanceData,
                gt_instances: InstanceData,

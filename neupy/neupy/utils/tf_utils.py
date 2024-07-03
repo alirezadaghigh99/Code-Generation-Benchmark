@@ -1,16 +1,51 @@
-def initialize_uninitialized_variables(variables=None):
-    if variables is None:
-        variables = tf.global_variables()
+def create_variable(value, name, shape, trainable=True):
+    """
+    Creates NN parameter as Tensorfow variable.
 
-    if not variables:
-        return
+    Parameters
+    ----------
+    value : array-like, Tensorfow variable, scalar or Initializer
+        Default value for the parameter.
 
-    session = tensorflow_session()
-    is_not_initialized = session.run([
-        tf.is_variable_initialized(var) for var in variables])
+    name : str
+        Shared variable name.
 
-    not_initialized_vars = [
-        v for (v, f) in zip(variables, is_not_initialized) if not f]
+    shape : tuple
+        Parameter's shape.
 
-    if len(not_initialized_vars):
-        session.run(tf.variables_initializer(not_initialized_vars))
+    trainable : bool
+        Whether parameter trainable by backpropagation.
+
+    Returns
+    -------
+    Tensorfow variable.
+    """
+    from neupy import init
+
+    if shape is not None:
+        shape = shape_to_tuple(shape)
+
+    if isinstance(value, (tf.Variable, tf.Tensor, np.ndarray, np.matrix)):
+        variable_shape = shape_to_tuple(value.shape)
+
+        if as_tuple(variable_shape) != as_tuple(shape):
+            raise ValueError(
+                "Cannot create variable with name `{}`. Provided variable "
+                "with shape {} is incompatible with expected shape {}"
+                "".format(name, variable_shape, shape))
+
+    if isinstance(value, (tf.Variable, tf.Tensor)):
+        return value
+
+    if isinstance(value, (int, float)):
+        value = init.Constant(value)
+
+    if isinstance(value, init.Initializer):
+        value = value.sample(shape)
+
+    return tf.Variable(
+        asfloat(value),
+        name=name,
+        dtype=tf.float32,
+        trainable=trainable,
+    )

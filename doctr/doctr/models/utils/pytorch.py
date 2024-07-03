@@ -1,24 +1,37 @@
-def set_device_and_dtype(
-    model: Any, batches: List[torch.Tensor], device: Union[str, torch.device], dtype: torch.dtype
-) -> Tuple[Any, List[torch.Tensor]]:
-    """Set the device and dtype of a model and its batches
+def conv_sequence_pt(
+    in_channels: int,
+    out_channels: int,
+    relu: bool = False,
+    bn: bool = False,
+    **kwargs: Any,
+) -> List[nn.Module]:
+    """Builds a convolutional-based layer sequence
 
-    >>> import torch
-    >>> from torch import nn
-    >>> from doctr.models.utils import set_device_and_dtype
-    >>> model = nn.Sequential(nn.Linear(8, 8), nn.ReLU(), nn.Linear(8, 4))
-    >>> batches = [torch.rand(8) for _ in range(2)]
-    >>> model, batches = set_device_and_dtype(model, batches, device="cuda", dtype=torch.float16)
+    >>> from torch.nn import Sequential
+    >>> from doctr.models import conv_sequence
+    >>> module = Sequential(conv_sequence(3, 32, True, True, kernel_size=3))
 
     Args:
     ----
-        model: the model to be set
-        batches: the batches to be set
-        device: the device to be used
-        dtype: the dtype to be used
+        in_channels: number of input channels
+        out_channels: number of output channels
+        relu: whether ReLU should be used
+        bn: should a batch normalization layer be added
+        **kwargs: additional arguments to be passed to the convolutional layer
 
     Returns:
     -------
-        the model and batches set
+        list of layers
     """
-    return model.to(device=device, dtype=dtype), [batch.to(device=device, dtype=dtype) for batch in batches]
+    # No bias before Batch norm
+    kwargs["bias"] = kwargs.get("bias", not bn)
+    # Add activation directly to the conv if there is no BN
+    conv_seq: List[nn.Module] = [nn.Conv2d(in_channels, out_channels, **kwargs)]
+
+    if bn:
+        conv_seq.append(nn.BatchNorm2d(out_channels))
+
+    if relu:
+        conv_seq.append(nn.ReLU(inplace=True))
+
+    return conv_seq

@@ -1,7 +1,11 @@
-def model_to_dict(model: Model):
-    """Turns a Keras model into a Python dictionary
+def dict_to_model(_dict: dict, custom_objects: dict = None):
+    """Turns a Python dictionary with model architecture and weights
+    back into a Keras model
 
-    :param model: Keras model instance
-    :return: dictionary with model information
+    :param _dict: dictionary with `model` and `weights` keys.
+    :param custom_objects: custom objects i.e; layers/activations, required for model
+    :return: Keras model instantiated from dictionary
     """
-    return dict(model=model.to_json(), weights=model.get_weights())
+    model = model_from_json(_dict['model'], custom_objects)
+    model.set_weights(_dict['weights'])
+    return model
