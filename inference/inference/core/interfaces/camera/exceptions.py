@@ -1,2 +1,0 @@
-class EndOfStreamError(StreamError):
-    pass

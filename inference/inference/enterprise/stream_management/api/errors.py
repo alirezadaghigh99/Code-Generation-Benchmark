@@ -1,2 +1,0 @@
-class ProcessesManagerNotFoundError(ProcessesManagerClientError):
-    pass
