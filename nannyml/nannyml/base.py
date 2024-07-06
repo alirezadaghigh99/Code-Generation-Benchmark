@@ -1,0 +1,3 @@
+def common_nan_removal(data: pd.DataFrame, selected_columns: List[str]) -> Tuple[pd.DataFrame, bool]:
+    ...
+

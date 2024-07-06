@@ -1,0 +1,3 @@
+def nonzero(self):
+        pass
+
