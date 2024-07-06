@@ -231,3 +231,8 @@ def sync_bool(
             f'Invalid value for `coherence_mode` provided: Expected type int, float, or one of ("any", "all", "rank_zero"), but received {coherence_mode}.'
         )
 
+def destroy_process_group() -> None:
+    """Destroy the global process group, if one is already initialized."""
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
+

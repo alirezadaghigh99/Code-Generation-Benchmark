@@ -184,3 +184,13 @@ def disable_new_opmath_cm():
         else:
             disable_new_opmath(warn=False)
 
+def has_gen(obj):
+    """Returns ``True`` if an operator has a generator defined."""
+    if isinstance(obj, Operator):
+        return obj.has_generator
+    try:
+        obj.generator()
+    except (AttributeError, OperatorPropertyUndefined, GeneratorUndefinedError):
+        return False
+    return True
+

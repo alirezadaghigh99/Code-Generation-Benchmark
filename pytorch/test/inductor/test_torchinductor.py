@@ -3,3 +3,7 @@ def repeat_interleave(x, n):
             i = torch.arange(x.shape[0] * n, device=x.device)
             return x[i // n]
 
+def copy(x):
+            i = torch.arange(x.size(0), device=x.device)
+            return x[i]
+

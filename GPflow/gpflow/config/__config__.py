@@ -20,3 +20,24 @@ def as_context(temporary_config: Optional[Config] = None) -> Generator[None, Non
     finally:
         set_config(current_config)
 
+def set_default_positive_bijector(value: str) -> None:
+    """
+    Sets positive bijector type.
+    There are currently two options implemented: "exp" and "softplus".
+    """
+    type_map = positive_bijector_type_map()
+    if isinstance(value, str):
+        value = value.lower()
+    if value not in type_map:
+        raise ValueError(f"`{value}` not in set of valid bijectors: {sorted(type_map)}")
+
+    set_config(replace(config(), positive_bijector=value))
+
+def set_default_summary_fmt(value: Optional[str]) -> None:
+    formats: List[Optional[str]] = list(tabulate.tabulate_formats)
+    formats.extend(["notebook", None])
+    if value not in formats:
+        raise ValueError(f"Summary does not support '{value}' format")
+
+    set_config(replace(config(), summary_fmt=value))
+

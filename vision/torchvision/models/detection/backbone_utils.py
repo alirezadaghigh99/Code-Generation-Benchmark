@@ -47,3 +47,16 @@ def resnet_fpn_backbone(
     backbone = resnet.__dict__[backbone_name](weights=weights, norm_layer=norm_layer)
     return _resnet_fpn_extractor(backbone, trainable_layers, returned_layers, extra_blocks)
 
+def mobilenet_backbone(
+    *,
+    backbone_name: str,
+    weights: Optional[WeightsEnum],
+    fpn: bool,
+    norm_layer: Callable[..., nn.Module] = misc_nn_ops.FrozenBatchNorm2d,
+    trainable_layers: int = 2,
+    returned_layers: Optional[List[int]] = None,
+    extra_blocks: Optional[ExtraFPNBlock] = None,
+) -> nn.Module:
+    backbone = mobilenet.__dict__[backbone_name](weights=weights, norm_layer=norm_layer)
+    return _mobilenet_extractor(backbone, fpn, trainable_layers, returned_layers, extra_blocks)
+

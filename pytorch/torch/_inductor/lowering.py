@@ -90,3 +90,31 @@ def make_pointwise(
 def _unsafe_index_put(x, indices, values, accumulate=False):
     return index_put_impl_(clone(x), indices, values, accumulate, check=False)
 
+def cummax(x, axis=None):
+    if len(x.get_size()) == 0:
+        assert axis in [0, -1]
+        return clone(x), empty_like(x, dtype=torch.int64)
+
+    dtype = x.get_dtype()
+    combine_fn = ir.get_reduction_combine_fn(
+        "argmax", dtype=dtype, arg_break_ties_left=False
+    )
+
+    min_value = (
+        False
+        if dtype is torch.bool
+        else (
+            torch.finfo(dtype).min
+            if dtype.is_floating_point
+            else torch.iinfo(dtype).min
+        )
+    )
+
+    kwargs = _make_scan_inner(x, axis=axis, dtype=dtype)
+    kwargs["dtypes"] = (dtype, torch.int64)
+    kwargs["inner_fns"] = (x.make_loader(), lambda _: "rindex")
+    values, indices = ir.Scan.create(**kwargs, combine_fn=combine_fn)
+    if values is None:
+        return fallback_cummax(x, dim=axis)
+    return values, indices
+

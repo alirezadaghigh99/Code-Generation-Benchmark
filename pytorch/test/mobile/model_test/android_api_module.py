@@ -6,3 +6,6 @@ def conv2d(self, x: Tensor, w: Tensor, toChannelsLast: bool) -> Tensor:
             r = r.contiguous()
         return r
 
+def contiguous(self, x: Tensor) -> Tensor:
+        return x.contiguous()
+

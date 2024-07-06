@@ -101,3 +101,22 @@ def to_float(img: np.ndarray, max_value: float | None = None) -> np.ndarray:
 
     return (img / max_value).astype(np.float32)
 
+def generate_shuffled_splits(
+    size: int,
+    divisions: int,
+    random_state: np.random.RandomState | None = None,
+) -> np.ndarray:
+    """Generate shuffled splits for a given dimension size and number of divisions.
+
+    Args:
+        size (int): Total size of the dimension (height or width).
+        divisions (int): Number of divisions (rows or columns).
+        random_state (Optional[np.random.RandomState]): Seed for the random number generator for reproducibility.
+
+    Returns:
+        np.ndarray: Cumulative edges of the shuffled intervals.
+    """
+    intervals = almost_equal_intervals(size, divisions)
+    intervals = random_utils.shuffle(intervals, random_state=random_state)
+    return np.insert(np.cumsum(intervals), 0, 0)
+

@@ -147,3 +147,48 @@ def keypoint_rot90(
 
     return x, y, angle, scale
 
+def transpose(img: np.ndarray) -> np.ndarray:
+    """Transposes the first two dimensions of an array of any dimensionality.
+    Retains the order of any additional dimensions.
+
+    Args:
+        img (np.ndarray): Input array.
+
+    Returns:
+        np.ndarray: Transposed array.
+    """
+    # Generate the new axes order
+    new_axes = list(range(img.ndim))
+    new_axes[0], new_axes[1] = 1, 0  # Swap the first two dimensions
+
+    # Transpose the array using the new axes order
+    return img.transpose(new_axes)
+
+def bbox_rot90(bbox: BoxInternalType, factor: int, rows: int | None = None, cols: int | None = None) -> BoxInternalType:
+    """Rotates a bounding box by 90 degrees CCW (see np.rot90)
+
+    Args:
+        bbox: A bounding box tuple (x_min, y_min, x_max, y_max).
+        factor: Number of CCW rotations. Must be in set {0, 1, 2, 3} See np.rot90.
+        rows: Image rows.
+        cols: Image cols.
+
+    Returns:
+        tuple: A bounding box tuple (x_min, y_min, x_max, y_max).
+
+    """
+    if factor not in {0, 1, 2, 3}:
+        msg = "Parameter n must be in set {0, 1, 2, 3}"
+        raise ValueError(msg)
+    x_min, y_min, x_max, y_max = bbox[:4]
+    if factor == 1:
+        bbox = y_min, 1 - x_max, y_max, 1 - x_min
+    elif factor == ROT90_180_FACTOR:
+        bbox = 1 - x_max, 1 - y_max, 1 - x_min, 1 - y_min
+    elif factor == ROT90_270_FACTOR:
+        bbox = 1 - y_max, x_min, 1 - y_min, x_max
+    return bbox
+
+def smallest_max_size(img: np.ndarray, max_size: int, interpolation: int) -> np.ndarray:
+    return _func_max_size(img, max_size, interpolation, min)
+

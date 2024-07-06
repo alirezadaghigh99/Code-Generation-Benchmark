@@ -1844,3 +1844,170 @@ def multilabel_confusion_matrix(
 
     return np.array([tn, fp, fn, tp]).T.reshape(-1, 2, 2)
 
+def _check_targets(y_true, y_pred):
+    """Check that y_true and y_pred belong to the same classification task.
+
+    This converts multiclass or binary types to a common shape, and raises a
+    ValueError for a mix of multilabel and multiclass targets, a mix of
+    multilabel formats, for the presence of continuous-valued or multioutput
+    targets, or for targets of different lengths.
+
+    Column vectors are squeezed to 1d, while multilabel formats are returned
+    as CSR sparse label indicators.
+
+    Parameters
+    ----------
+    y_true : array-like
+
+    y_pred : array-like
+
+    Returns
+    -------
+    type_true : one of {'multilabel-indicator', 'multiclass', 'binary'}
+        The type of the true target data, as output by
+        ``utils.multiclass.type_of_target``.
+
+    y_true : array or indicator matrix
+
+    y_pred : array or indicator matrix
+    """
+    xp, _ = get_namespace(y_true, y_pred)
+    check_consistent_length(y_true, y_pred)
+    type_true = type_of_target(y_true, input_name="y_true")
+    type_pred = type_of_target(y_pred, input_name="y_pred")
+
+    y_type = {type_true, type_pred}
+    if y_type == {"binary", "multiclass"}:
+        y_type = {"multiclass"}
+
+    if len(y_type) > 1:
+        raise ValueError(
+            "Classification metrics can't handle a mix of {0} and {1} targets".format(
+                type_true, type_pred
+            )
+        )
+
+    # We can't have more than one value on y_type => The set is no more needed
+    y_type = y_type.pop()
+
+    # No metrics support "multiclass-multioutput" format
+    if y_type not in ["binary", "multiclass", "multilabel-indicator"]:
+        raise ValueError("{0} is not supported".format(y_type))
+
+    if y_type in ["binary", "multiclass"]:
+        xp, _ = get_namespace(y_true, y_pred)
+        y_true = column_or_1d(y_true)
+        y_pred = column_or_1d(y_pred)
+        if y_type == "binary":
+            try:
+                unique_values = _union1d(y_true, y_pred, xp)
+            except TypeError as e:
+                # We expect y_true and y_pred to be of the same data type.
+                # If `y_true` was provided to the classifier as strings,
+                # `y_pred` given by the classifier will also be encoded with
+                # strings. So we raise a meaningful error
+                raise TypeError(
+                    "Labels in y_true and y_pred should be of the same type. "
+                    f"Got y_true={xp.unique(y_true)} and "
+                    f"y_pred={xp.unique(y_pred)}. Make sure that the "
+                    "predictions provided by the classifier coincides with "
+                    "the true labels."
+                ) from e
+            if unique_values.shape[0] > 2:
+                y_type = "multiclass"
+
+    if y_type.startswith("multilabel"):
+        if _is_numpy_namespace(xp):
+            # XXX: do we really want to sparse-encode multilabel indicators when
+            # they are passed as a dense arrays? This is not possible for array
+            # API inputs in general hence we only do it for NumPy inputs. But even
+            # for NumPy the usefulness is questionable.
+            y_true = csr_matrix(y_true)
+            y_pred = csr_matrix(y_pred)
+        y_type = "multilabel-indicator"
+
+    return y_type, y_true, y_pred
+
+def d2_log_loss_score(y_true, y_pred, *, sample_weight=None, labels=None):
+    """
+    :math:`D^2` score function, fraction of log loss explained.
+
+    Best possible score is 1.0 and it can be negative (because the model can be
+    arbitrarily worse). A model that always predicts the per-class proportions
+    of `y_true`, disregarding the input features, gets a D^2 score of 0.0.
+
+    Read more in the :ref:`User Guide <d2_score_classification>`.
+
+    .. versionadded:: 1.5
+
+    Parameters
+    ----------
+    y_true : array-like or label indicator matrix
+        The actuals labels for the n_samples samples.
+
+    y_pred : array-like of shape (n_samples, n_classes) or (n_samples,)
+        Predicted probabilities, as returned by a classifier's
+        predict_proba method. If ``y_pred.shape = (n_samples,)``
+        the probabilities provided are assumed to be that of the
+        positive class. The labels in ``y_pred`` are assumed to be
+        ordered alphabetically, as done by
+        :class:`~sklearn.preprocessing.LabelBinarizer`.
+
+    sample_weight : array-like of shape (n_samples,), default=None
+        Sample weights.
+
+    labels : array-like, default=None
+        If not provided, labels will be inferred from y_true. If ``labels``
+        is ``None`` and ``y_pred`` has shape (n_samples,) the labels are
+        assumed to be binary and are inferred from ``y_true``.
+
+    Returns
+    -------
+    d2 : float or ndarray of floats
+        The D^2 score.
+
+    Notes
+    -----
+    This is not a symmetric function.
+
+    Like R^2, D^2 score may be negative (it need not actually be the square of
+    a quantity D).
+
+    This metric is not well-defined for a single sample and will return a NaN
+    value if n_samples is less than two.
+    """
+    y_pred = check_array(y_pred, ensure_2d=False, dtype="numeric")
+    check_consistent_length(y_pred, y_true, sample_weight)
+    if _num_samples(y_pred) < 2:
+        msg = "D^2 score is not well-defined with less than two samples."
+        warnings.warn(msg, UndefinedMetricWarning)
+        return float("nan")
+
+    # log loss of the fitted model
+    numerator = log_loss(
+        y_true=y_true,
+        y_pred=y_pred,
+        normalize=False,
+        sample_weight=sample_weight,
+        labels=labels,
+    )
+
+    # Proportion of labels in the dataset
+    weights = _check_sample_weight(sample_weight, y_true)
+
+    _, y_value_indices = np.unique(y_true, return_inverse=True)
+    counts = np.bincount(y_value_indices, weights=weights)
+    y_prob = counts / weights.sum()
+    y_pred_null = np.tile(y_prob, (len(y_true), 1))
+
+    # log loss of the null model
+    denominator = log_loss(
+        y_true=y_true,
+        y_pred=y_pred_null,
+        normalize=False,
+        sample_weight=sample_weight,
+        labels=labels,
+    )
+
+    return 1 - (numerator / denominator)
+

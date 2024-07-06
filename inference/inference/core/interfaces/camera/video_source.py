@@ -33,3 +33,24 @@ def get_fps_if_tick_happens_now(fps_monitor: sv.FPSMonitor) -> float:
     reader_taken_time = now - min_reader_timestamp
     return (len(fps_monitor.all_timestamps) + 1) / reader_taken_time
 
+def decode_video_frame_to_buffer(
+    frame_timestamp: datetime,
+    frame_id: int,
+    video: VideoFrameProducer,
+    buffer: Queue,
+    decoding_pace_monitor: sv.FPSMonitor,
+    source_id: Optional[int],
+) -> bool:
+    success, image = video.retrieve()
+    if not success:
+        return False
+    decoding_pace_monitor.tick()
+    video_frame = VideoFrame(
+        image=image,
+        frame_id=frame_id,
+        frame_timestamp=frame_timestamp,
+        source_id=source_id,
+    )
+    buffer.put(video_frame)
+    return True
+

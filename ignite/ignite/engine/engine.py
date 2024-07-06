@@ -141,3 +141,20 @@ def on(self, event_name: Any, *args: Any, **kwargs: Any) -> Callable:
 
         return decorator
 
+def terminate_epoch(self) -> None:
+        """Sends terminate signal to the engine, so that it terminates the current epoch. The run
+        continues from the next epoch. The following events are triggered:
+
+        - ...
+        - Event on which ``terminate_epoch`` method is called
+        - :attr:`~ignite.engine.events.Events.TERMINATE_SINGLE_EPOCH`
+        - :attr:`~ignite.engine.events.Events.EPOCH_COMPLETED`
+        - :attr:`~ignite.engine.events.Events.EPOCH_STARTED`
+        - ...
+        """
+        self.logger.info(
+            "Terminate current epoch is signaled. "
+            "Current epoch iteration will stop after current iteration is finished."
+        )
+        self.should_terminate_single_epoch = True
+

@@ -380,3 +380,79 @@ def raises(expected_exc_type, match=None, may_pass=False, err_msg=None):
     """
     return _Raises(expected_exc_type, match, may_pass, err_msg)
 
+def _get_warnings_filters_info_list():
+    @dataclass
+    class WarningInfo:
+        action: "warnings._ActionKind"
+        message: str = ""
+        category: type[Warning] = Warning
+
+        def to_filterwarning_str(self):
+            if self.category.__module__ == "builtins":
+                category = self.category.__name__
+            else:
+                category = f"{self.category.__module__}.{self.category.__name__}"
+
+            return f"{self.action}:{self.message}:{category}"
+
+    return [
+        WarningInfo("error", category=DeprecationWarning),
+        WarningInfo("error", category=FutureWarning),
+        WarningInfo("error", category=VisibleDeprecationWarning),
+        # TODO: remove when pyamg > 5.0.1
+        # Avoid a deprecation warning due pkg_resources usage in pyamg.
+        WarningInfo(
+            "ignore",
+            message="pkg_resources is deprecated as an API",
+            category=DeprecationWarning,
+        ),
+        WarningInfo(
+            "ignore",
+            message="Deprecated call to `pkg_resources",
+            category=DeprecationWarning,
+        ),
+        # pytest-cov issue https://github.com/pytest-dev/pytest-cov/issues/557 not
+        # fixed although it has been closed. https://github.com/pytest-dev/pytest-cov/pull/623
+        # would probably fix it.
+        WarningInfo(
+            "ignore",
+            message=(
+                "The --rsyncdir command line argument and rsyncdirs config variable are"
+                " deprecated"
+            ),
+            category=DeprecationWarning,
+        ),
+        # XXX: Easiest way to ignore pandas Pyarrow DeprecationWarning in the
+        # short-term. See https://github.com/pandas-dev/pandas/issues/54466 for
+        # more details.
+        WarningInfo(
+            "ignore",
+            message=r"\s*Pyarrow will become a required dependency",
+            category=DeprecationWarning,
+        ),
+        # warnings has been fixed from dateutil main but not released yet, see
+        # https://github.com/dateutil/dateutil/issues/1314
+        WarningInfo(
+            "ignore",
+            message="datetime.datetime.utcfromtimestamp",
+            category=DeprecationWarning,
+        ),
+        # Python 3.12 warnings from joblib fixed in master but not released yet,
+        # see https://github.com/joblib/joblib/pull/1518
+        WarningInfo(
+            "ignore", message="ast.Num is deprecated", category=DeprecationWarning
+        ),
+        WarningInfo(
+            "ignore", message="Attribute n is deprecated", category=DeprecationWarning
+        ),
+        # Python 3.12 warnings from sphinx-gallery fixed in master but not
+        # released yet, see
+        # https://github.com/sphinx-gallery/sphinx-gallery/pull/1242
+        WarningInfo(
+            "ignore", message="ast.Str is deprecated", category=DeprecationWarning
+        ),
+        WarningInfo(
+            "ignore", message="Attribute s is deprecated", category=DeprecationWarning
+        ),
+    ]
+

@@ -20,3 +20,6 @@ def _get_kernel(functional, input_type, *, allow_passthrough=False):
         f"but got {input_type} instead."
     )
 
+def is_pure_tensor(inpt: Any) -> bool:
+    return isinstance(inpt, torch.Tensor) and not isinstance(inpt, tv_tensors.TVTensor)
+

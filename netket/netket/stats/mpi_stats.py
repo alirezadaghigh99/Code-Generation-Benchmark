@@ -22,3 +22,23 @@ def mean(a, axis=None, keepdims: bool = False):
     out, _ = mpi.mpi_mean_jax(out)
     return out
 
+def subtract_mean(x, axis=None):
+    """
+    Subtracts the mean of the input array over all but the last dimension
+    and over all MPI processes from each entry.
+
+    Args:
+        x: Input array
+        axis: Axis or axes along which the means are computed. The default (None) is to
+              compute the mean of the flattened array.
+
+    Returns:
+        The resulting array.
+
+    """
+    # here we keep the dims, since automatic broadcasting of a scalar (shape () )
+    # to an array produces errors when used inside of a function which is transposed
+    # with jax.linear_transpose
+    x_mean = mean(x, axis=axis, keepdims=True)
+    return x - x_mean  # automatic broadcasting of x_mean
+

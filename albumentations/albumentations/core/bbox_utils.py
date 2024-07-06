@@ -185,3 +185,54 @@ def convert_bbox_to_albumentations(
         check_bbox(bbox)
     return bbox
 
+def convert_bbox_from_albumentations(
+    bbox: BoxType,
+    target_format: str,
+    rows: int,
+    cols: int,
+    check_validity: bool = False,
+) -> BoxType:
+    """Convert a bounding box from the format used by albumentations to a format, specified in `target_format`.
+
+    Args:
+        bbox: An albumentations bounding box `(x_min, y_min, x_max, y_max)`.
+        target_format: required format of the output bounding box. Should be 'coco', 'pascal_voc' or 'yolo'.
+        rows: Image height.
+        cols: Image width.
+        check_validity: Check if all boxes are valid boxes.
+
+    Returns:
+        tuple: A bounding box.
+
+    Note:
+        The `coco` format of a bounding box looks like `[x_min, y_min, width, height]`, e.g. [97, 12, 150, 200].
+        The `pascal_voc` format of a bounding box looks like `[x_min, y_min, x_max, y_max]`, e.g. [97, 12, 247, 212].
+        The `yolo` format of a bounding box looks like `[x, y, width, height]`, e.g. [0.3, 0.1, 0.05, 0.07].
+
+    Raises:
+        ValueError: if `target_format` is not equal to `coco`, `pascal_voc` or `yolo`.
+
+    """
+    if target_format not in {"coco", "pascal_voc", "yolo"}:
+        raise ValueError(
+            f"Unknown target_format {target_format}. Supported formats are: 'coco', 'pascal_voc' and 'yolo'",
+        )
+    if check_validity:
+        check_bbox(bbox)
+
+    if target_format != "yolo":
+        bbox = denormalize_bbox(bbox, rows, cols)
+    if target_format == "coco":
+        (x_min, y_min, x_max, y_max), tail = bbox[:4], tuple(bbox[4:])
+        width = x_max - x_min
+        height = y_max - y_min
+        bbox = cast(BoxType, (x_min, y_min, width, height, *tail))
+    elif target_format == "yolo":
+        (x_min, y_min, x_max, y_max), tail = bbox[:4], bbox[4:]
+        x = (x_min + x_max) / 2.0
+        y = (y_min + y_max) / 2.0
+        width = x_max - x_min
+        height = y_max - y_min
+        bbox = cast(BoxType, (x, y, width, height, *tail))
+    return bbox
+

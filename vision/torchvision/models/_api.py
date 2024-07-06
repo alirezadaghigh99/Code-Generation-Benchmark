@@ -64,3 +64,20 @@ def get_model(name: str, **config: Any) -> nn.Module:
     fn = get_model_builder(name)
     return fn(**config)
 
+def get_model_builder(name: str) -> Callable[..., nn.Module]:
+    """
+    Gets the model name and returns the model builder method.
+
+    Args:
+        name (str): The name under which the model is registered.
+
+    Returns:
+        fn (Callable): The model builder method.
+    """
+    name = name.lower()
+    try:
+        fn = BUILTIN_MODELS[name]
+    except KeyError:
+        raise ValueError(f"Unknown model {name}")
+    return fn
+

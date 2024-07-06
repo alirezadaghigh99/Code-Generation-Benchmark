@@ -112,3 +112,49 @@ def eye(*args, like=None, **kwargs):
         res = res.to(device=like.device)
     return res
 
+def add(*args, like=None, **kwargs):
+    """Add arguments element-wise."""
+    if like == "scipy":
+        return onp.add(*args, **kwargs)  # Dispatch scipy add to numpy backed specifically.
+
+    arg_interfaces = {get_interface(args[0]), get_interface(args[1])}
+
+    # case of one torch tensor and one vanilla numpy array
+    if like == "torch" and len(arg_interfaces) == 2:
+        # In autoray 0.6.5, np.add dispatches to torch instead of
+        # numpy if one parameter is a torch tensor and the other is
+        # a numpy array. torch.add raises an Exception if one of the
+        # arguments is a numpy array, so here we cast both arguments
+        # to be tensors.
+        dev = getattr(args[0], "device", None) or getattr(args[1], "device")
+        arg0 = np.asarray(args[0], device=dev, like=like)
+        arg1 = np.asarray(args[1], device=dev, like=like)
+        return np.add(arg0, arg1, *args[2:], **kwargs)
+
+    return np.add(*args, **kwargs, like=like)
+
+def norm(tensor, like=None, **kwargs):
+    """Compute the norm of a tensor in each interface."""
+    if like == "jax":
+        from jax.numpy.linalg import norm
+
+    elif like == "tensorflow":
+        from tensorflow import norm
+
+    elif like == "torch":
+        from torch.linalg import norm
+
+        if "axis" in kwargs:
+            axis_val = kwargs.pop("axis")
+            kwargs["dim"] = axis_val
+
+    elif (
+        like == "autograd" and kwargs.get("ord", None) is None and kwargs.get("axis", None) is None
+    ):
+        norm = _flat_autograd_norm
+
+    else:
+        from scipy.linalg import norm
+
+    return norm(tensor, **kwargs)
+
