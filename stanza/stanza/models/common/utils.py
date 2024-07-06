@@ -25,3 +25,21 @@ def get_wordvec_file(wordvec_dir, shorthand, wordvec_type=None):
         filename = filename + ".txt"
     return filename
 
+def set_random_seed(seed):
+    """
+    Set a random seed on all of the things which might need it.
+    torch, np, python random, and torch.cuda
+    """
+    if seed is None:
+        seed = random.randint(0, 1000000000)
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    # some of these calls are probably redundant
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    return seed
+

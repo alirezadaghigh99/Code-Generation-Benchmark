@@ -56,3 +56,24 @@ def save(self, path: str, force: bool = False) -> None:
         save_message = f"Saved Datalab to folder: {path}"
         print(save_message)
 
+def get_issue_summary(self, issue_name: Optional[str] = None) -> pd.DataFrame:
+        """Summarize the issues found in dataset of a particular type,
+        including how severe this type of issue is overall across the dataset.
+
+        See the documentation of the ``issue_summary`` attribute to learn more.
+
+        Parameters
+        ----------
+        issue_name :
+            Name of the issue type to summarize. If `None`, summarizes each of the different issue types previously considered in the audit.
+
+        Returns
+        -------
+        issue_summary :
+            DataFrame where each row corresponds to a type of issue, and columns quantify:
+            the number of examples in the dataset estimated to exhibit this type of issue,
+            and the overall severity of the issue across the dataset (via a numeric quality score where lower values indicate that the issue is overall more severe).
+            The quality scores lie between 0-1 and are directly comparable between multiple datasets (for the same issue type), but not across different issue types.
+        """
+        return self.data_issues.get_issue_summary(issue_name=issue_name)
+

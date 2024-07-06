@@ -262,3 +262,30 @@ def create_fixed_length_windows(
     )
     return BaseConcatDataset(list_of_windows_ds)
 
+def create_windows_from_target_channels(
+    concat_ds,
+    window_size_samples=None,
+    preload=False,
+    picks=None,
+    reject=None,
+    flat=None,
+    n_jobs=1,
+    last_target_only=True,
+    verbose="error",
+):
+    list_of_windows_ds = Parallel(n_jobs=n_jobs)(
+        delayed(_create_windows_from_target_channels)(
+            ds,
+            window_size_samples,
+            preload,
+            picks,
+            reject,
+            flat,
+            last_target_only,
+            "error",
+            verbose,
+        )
+        for ds in concat_ds.datasets
+    )
+    return BaseConcatDataset(list_of_windows_ds)
+

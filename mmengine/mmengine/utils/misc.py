@@ -77,3 +77,10 @@ def deprecated_function(since: str, removed_in: str,
 
     return decorator
 
+def is_list_of(seq, expected_type):
+    """Check whether it is a list of some type.
+
+    A partial method of :func:`is_seq_of`.
+    """
+    return is_seq_of(seq, expected_type, seq_type=list)
+

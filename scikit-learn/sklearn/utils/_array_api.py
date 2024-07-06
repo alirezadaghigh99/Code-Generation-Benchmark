@@ -152,3 +152,16 @@ def astype(self, x, dtype, *, copy=True, casting="unsafe"):
         # astype is not defined in the top level NumPy namespace
         return x.astype(dtype, copy=copy, casting=casting)
 
+def _convert_to_numpy(array, xp):
+    """Convert X into a NumPy ndarray on the CPU."""
+    xp_name = xp.__name__
+
+    if xp_name in {"array_api_compat.torch", "torch"}:
+        return array.cpu().numpy()
+    elif xp_name == "cupy.array_api":
+        return array._array.get()
+    elif xp_name in {"array_api_compat.cupy", "cupy"}:  # pragma: nocover
+        return array.get()
+
+    return numpy.asarray(array)
+

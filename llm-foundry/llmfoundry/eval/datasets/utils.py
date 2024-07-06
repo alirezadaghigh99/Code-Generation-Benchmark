@@ -80,3 +80,83 @@ def get_fewshot_sample_idxs(
         fewshot_idxs.add(replacement_sample)
     return fewshot_idxs
 
+def get_continuation_span(
+    context_enc: List,
+    continuation_enc: List,
+) -> torch.Tensor:
+    """Gets the list of indices of the continuation tokens for language.
+
+    modeling.
+
+    or generation tasks.
+
+    Args:
+        context_enc (list): List of context tokens
+        continuation_enc (list): List of continuation tokens
+
+    Returns:
+        torch.tensor: A tensor containing indices corresponding to continuation tokens
+    """
+    return torch.tensor(
+        range(len(context_enc),
+              len(context_enc) + len(continuation_enc)),
+    )
+
+def make_padded_input(
+    context_enc: List,
+    continuation_enc: List,
+    max_seq_len: int,
+    pad_tok_id: int,
+    padding_side: str = 'right',
+) -> torch.Tensor:
+    """Takes an encoded context and continuation and clips the beginning of the.
+
+    context if they're too long. Adds the padding token to the specified side.
+
+    Args:
+        context_enc (List): The encoded input to the model
+        continuation_enc (List): The encoded desired output for the example
+        max_seq_list (int): Maximum length sequences can be
+        pad_tok_id (int): The token id we pad with
+        padding_side (str): Which side to pad the context on. Can be 'right' or 'left
+
+    Returns:
+        input (torch.tensor): The padded and encoded context
+        continuation_span (torch.tensor): The _inclusive_ range of indices corresponding to the continuation
+    """
+    inp = torch.tensor(
+        (context_enc + continuation_enc),
+        dtype=torch.long,
+    )
+    (inp_len,) = inp.shape
+
+    # Sometimes tokenizers that have neither a pad_tok_id or eos_tok_id will pass None in as the padding
+    # token and cause errors
+    if not isinstance(pad_tok_id, int):
+        raise ValueError(
+            f'`pad_tok_id` must be an integer. Found {type(pad_tok_id)} instead',
+        )
+    # pad length from seq to padding_length
+    if padding_side == 'right':
+        inp = torch.cat(
+            [
+                inp,  # [seq]
+                torch.LongTensor((max_seq_len - inp_len) * [pad_tok_id]),
+            ],
+            dim=0,
+        )
+    elif padding_side == 'left':
+        inp = torch.cat(
+            [
+                torch.LongTensor((max_seq_len - inp_len) * [pad_tok_id]),
+                inp,  # [seq]
+            ],
+            dim=0,
+        )
+    else:
+        raise ValueError(
+            f"Unknown padding_side {padding_side}. padding_side must be either 'left' or 'right'",
+        )
+
+    return inp
+

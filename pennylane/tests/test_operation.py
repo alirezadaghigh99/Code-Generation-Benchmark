@@ -25,3 +25,10 @@ def compute_decomposition(angle, wires, do_flip):  # pylint: disable=arguments-d
             op_list.append(qml.RX(angle, wires=wires[0]))
             return op_list
 
+def compute_decomposition(angle, wires, do_flip):  # pylint: disable=arguments-differ
+            op_list = []
+            if do_flip:
+                op_list.append(qml.PauliX(wires=wires[1]))
+            op_list.append(qml.RX(angle, wires=wires[0]))
+            return op_list
+

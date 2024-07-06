@@ -258,3 +258,10 @@ def _cov_and_var_to_corr(this_cov, var_a, var_b):
     divisor = np.outer(np.sqrt(var_a), np.sqrt(var_b))
     return this_cov / divisor
 
+def _cov_to_corr(this_cov, a, b):
+    # computing "unbiased" corr
+    # ddof=1 for unbiased..
+    var_a = np.var(a, axis=1, ddof=1)
+    var_b = np.var(b, axis=1, ddof=1)
+    return _cov_and_var_to_corr(this_cov, var_a, var_b)
+

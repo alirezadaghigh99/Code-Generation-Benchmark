@@ -194,3 +194,16 @@ def has_gen(obj):
         return False
     return True
 
+def enable_new_opmath_cm():
+    r"""Allows to use the new operator arithmetic within a
+    temporary context using the `with` statement."""
+
+    was_active = qml.operation.active_new_opmath()
+    if not was_active:
+        enable_new_opmath(warn=False)
+    yield
+    if was_active:
+        enable_new_opmath(warn=False)
+    else:
+        disable_new_opmath(warn=False)
+

@@ -26,3 +26,15 @@ def quantile(input, probs, dim=0):
     quantiles = weights_below * quantiles_below + weights_above * quantiles_above
     return quantiles if probs.shape != torch.Size([]) else quantiles.squeeze(dim)
 
+def pi(input, prob, dim=0):
+    """
+    Computes percentile interval which assigns equal probability mass
+    to each tail of the interval.
+
+    :param torch.Tensor input: the input tensor.
+    :param float prob: the probability mass of samples within the interval.
+    :param int dim: dimension to calculate percentile interval from ``input``.
+    :returns torch.Tensor: quantiles of ``input`` at ``probs``.
+    """
+    return quantile(input, [(1 - prob) / 2, (1 + prob) / 2], dim)
+

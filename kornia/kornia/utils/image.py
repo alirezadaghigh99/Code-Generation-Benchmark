@@ -57,3 +57,50 @@ def tensor_to_image(tensor: Tensor, keepdim: bool = False, force_contiguous: boo
 
     return image.numpy()
 
+def image_to_tensor(image: Any, keepdim: bool = True) -> Tensor:
+    """Convert a numpy image to a PyTorch 4d tensor image.
+
+    Args:
+        image: image of the form :math:`(H, W, C)`, :math:`(H, W)` or
+            :math:`(B, H, W, C)`.
+        keepdim: If ``False`` unsqueeze the input image to match the shape
+            :math:`(B, H, W, C)`.
+
+    Returns:
+        tensor of the form :math:`(B, C, H, W)` if keepdim is ``False``,
+            :math:`(C, H, W)` otherwise.
+
+    Example:
+        >>> img = np.ones((3, 3))
+        >>> image_to_tensor(img).shape
+        torch.Size([1, 3, 3])
+
+        >>> img = np.ones((4, 4, 1))
+        >>> image_to_tensor(img).shape
+        torch.Size([1, 4, 4])
+
+        >>> img = np.ones((4, 4, 3))
+        >>> image_to_tensor(img, keepdim=False).shape
+        torch.Size([1, 3, 4, 4])
+    """
+    if len(image.shape) > 4 or len(image.shape) < 2:
+        raise ValueError("Input size must be a two, three or four dimensional array")
+
+    input_shape = image.shape
+    tensor: Tensor = torch.from_numpy(image)
+
+    if len(input_shape) == 2:
+        # (H, W) -> (1, H, W)
+        tensor = tensor.unsqueeze(0)
+    elif len(input_shape) == 3:
+        # (H, W, C) -> (C, H, W)
+        tensor = tensor.permute(2, 0, 1)
+    elif len(input_shape) == 4:
+        # (B, H, W, C) -> (B, C, H, W)
+        tensor = tensor.permute(0, 3, 1, 2)
+        keepdim = True  # no need to unsqueeze
+    else:
+        raise ValueError(f"Cannot process image with shape {input_shape}")
+
+    return tensor.unsqueeze(0) if not keepdim else tensor
+

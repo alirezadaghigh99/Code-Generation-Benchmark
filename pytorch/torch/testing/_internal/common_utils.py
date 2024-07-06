@@ -154,3 +154,22 @@ def skipIfTorchInductor(msg="test doesn't currently work with torchinductor",
 
     return decorator
 
+def first_sample(self: unittest.TestCase, samples: Iterable[T]) -> T:
+    """
+    Returns the first sample from an iterable of samples, like those returned by OpInfo.
+    The test will be skipped if no samples are available.
+    """
+    try:
+        return next(iter(samples))
+    except StopIteration as e:
+        raise unittest.SkipTest('Skipped! Need at least 1 sample input') from e
+
+def clone_input_helper(input):
+    if isinstance(input, torch.Tensor):
+        return torch.clone(input)
+
+    if isinstance(input, Sequence):
+        return tuple(map(clone_input_helper, input))
+
+    return input
+

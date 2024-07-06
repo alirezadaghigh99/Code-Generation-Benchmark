@@ -77,3 +77,30 @@ def _retrieve_checkpoint_dirpaths(
 
     return valid_ckpt_dirpaths
 
+def get_checkpoint_dirpaths(
+    dirpath: str,
+    metadata_fname: Optional[str] = None,
+    metric_name: Optional[str] = None,
+    process_group: Optional[dist.ProcessGroup] = None,
+) -> List[CheckpointPath]:
+    """
+    Given a parent directory where checkpoints are saved, returns the checkpoint subdirectories.
+    The order of the checkpoints is not guaranteed.
+
+    The checkpoint paths are assumed to have the following format: <dirpath>/epoch_<epoch>_step_<step>
+    If a metric_name is provided the format should be <dirpath>/epoch_<epoch>_step_<step>_<metric_name>=<metric_value>
+    This will always be the case if the CheckpointManager class is used to produce their names.
+
+    Args:
+        dirpath: parent directory where checkpoints are saved.
+        metadata_fname: Checks if metadata file is present in checkpoint, disregards if it does not exist.
+        metric_name: fetches all the checkpoint directories containing the metric name only.
+        process_group: the process group on which the ranks will communicate on. default: ``None`` (the entire world)
+
+    Note:
+        When doing distributed training, only rank 0 will read the file system. The result will be broadcasted to all ranks.
+        gloo process groups are recommended over nccl.
+    """
+
+    return _retrieve_checkpoint_dirpaths(dirpath, metadata_fname, metric_name)
+

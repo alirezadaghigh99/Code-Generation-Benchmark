@@ -51,3 +51,19 @@ def exif_transpose(image: Image.Image) -> Image.Image:
             image.info["exif"] = exif.tobytes()
     return image
 
+def read_image(image_path: str):
+    """
+    Loads image as a numpy array from the given path.
+
+    Args:
+        image_path (str): The path to the image file.
+
+    Returns:
+        numpy.ndarray: The loaded image as a numpy array.
+    """
+    # read image
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # return image
+    return image
+

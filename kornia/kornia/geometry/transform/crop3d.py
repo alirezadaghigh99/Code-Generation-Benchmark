@@ -214,3 +214,103 @@ def crop_by_boxes3d(
 
     return patches
 
+def crop_and_resize3d(
+    tensor: torch.Tensor,
+    boxes: torch.Tensor,
+    size: Tuple[int, int, int],
+    interpolation: str = "bilinear",
+    align_corners: bool = False,
+) -> torch.Tensor:
+    r"""Extract crops from 3D volumes (5D tensor) and resize them.
+
+    Args:
+        tensor: the 3D volume tensor with shape (B, C, D, H, W).
+        boxes: a tensor with shape (B, 8, 3) containing the coordinates of the bounding boxes
+            to be extracted. The tensor must have the shape of Bx8x3, where each box is defined in the clockwise
+            order: front-top-left, front-top-right, front-bottom-right, front-bottom-left, back-top-left,
+            back-top-right, back-bottom-right, back-bottom-left. The coordinates must be in x, y, z order.
+        size: a tuple with the height and width that will be
+            used to resize the extracted patches.
+        interpolation: Interpolation flag.
+        align_corners: mode for grid_generation.
+
+    Returns:
+        tensor containing the patches with shape (Bx)CxN1xN2xN3.
+
+    Example:
+        >>> input = torch.arange(64, dtype=torch.float32).view(1, 1, 4, 4, 4)
+        >>> input
+        tensor([[[[[ 0.,  1.,  2.,  3.],
+                   [ 4.,  5.,  6.,  7.],
+                   [ 8.,  9., 10., 11.],
+                   [12., 13., 14., 15.]],
+        <BLANKLINE>
+                  [[16., 17., 18., 19.],
+                   [20., 21., 22., 23.],
+                   [24., 25., 26., 27.],
+                   [28., 29., 30., 31.]],
+        <BLANKLINE>
+                  [[32., 33., 34., 35.],
+                   [36., 37., 38., 39.],
+                   [40., 41., 42., 43.],
+                   [44., 45., 46., 47.]],
+        <BLANKLINE>
+                  [[48., 49., 50., 51.],
+                   [52., 53., 54., 55.],
+                   [56., 57., 58., 59.],
+                   [60., 61., 62., 63.]]]]])
+        >>> boxes = torch.tensor([[
+        ...     [1., 1., 1.],
+        ...     [3., 1., 1.],
+        ...     [3., 3., 1.],
+        ...     [1., 3., 1.],
+        ...     [1., 1., 2.],
+        ...     [3., 1., 2.],
+        ...     [3., 3., 2.],
+        ...     [1., 3., 2.],
+        ... ]])  # 1x8x3
+        >>> crop_and_resize3d(input, boxes, (2, 2, 2), align_corners=True)
+        tensor([[[[[21.0000, 23.0000],
+                   [29.0000, 31.0000]],
+        <BLANKLINE>
+                  [[37.0000, 39.0000],
+                   [45.0000, 47.0000]]]]])
+    """
+    if not isinstance(tensor, (torch.Tensor)):
+        raise TypeError(f"Input tensor type is not a torch.Tensor. Got {type(tensor)}")
+    if not isinstance(boxes, (torch.Tensor)):
+        raise TypeError(f"Input boxes type is not a torch.Tensor. Got {type(boxes)}")
+    if not isinstance(size, (tuple, list)) and len(size) != 3:
+        raise ValueError(f"Input size must be a tuple/list of length 3. Got {size}")
+    if len(tensor.shape) != 5:
+        raise AssertionError(f"Only tensor with shape (B, C, D, H, W) supported. Got {tensor.shape}.")
+    # unpack input data
+    dst_d, dst_h, dst_w = size[0], size[1], size[2]
+
+    # [x, y, z] origin
+    # from front to back
+    # top-left, top-right, bottom-right, bottom-left
+    points_src: torch.Tensor = boxes
+
+    # [x, y, z] destination
+    # from front to back
+    # top-left, top-right, bottom-right, bottom-left
+    points_dst: torch.Tensor = torch.tensor(
+        [
+            [
+                [0, 0, 0],
+                [dst_w - 1, 0, 0],
+                [dst_w - 1, dst_h - 1, 0],
+                [0, dst_h - 1, 0],
+                [0, 0, dst_d - 1],
+                [dst_w - 1, 0, dst_d - 1],
+                [dst_w - 1, dst_h - 1, dst_d - 1],
+                [0, dst_h - 1, dst_d - 1],
+            ]
+        ],
+        dtype=tensor.dtype,
+        device=tensor.device,
+    ).expand(points_src.shape[0], -1, -1)
+
+    return crop_by_boxes3d(tensor, points_src, points_dst, interpolation, align_corners)
+

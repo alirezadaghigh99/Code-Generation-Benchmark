@@ -388,3 +388,235 @@ def cycle_mixer(graph: Union[nx.DiGraph, rx.PyDiGraph]) -> qml.operation.Operato
 
     return hamiltonian
 
+def _partial_cycle_mixer(
+    graph: Union[nx.DiGraph, rx.PyDiGraph], edge: Tuple
+) -> qml.operation.Operator:
+    r"""Calculates the partial cycle-mixer Hamiltonian for a specific edge.
+
+    For an edge :math:`(i, j)`, this function returns:
+
+    .. math::
+
+        \sum_{k \in V, k\neq i, k\neq j, (i, k) \in E, (k, j) \in E}\left[
+        X_{ij}X_{ik}X_{kj} + Y_{ij}Y_{ik}X_{kj} + Y_{ij}X_{ik}Y_{kj} - X_{ij}Y_{ik}Y_{kj}\right]
+
+    Args:
+        graph (nx.DiGraph or rx.PyDiGraph): the directed graph specifying possible edges
+        edge (tuple): a fixed edge
+
+    Returns:
+        qml.Hamiltonian: the partial cycle-mixer Hamiltonian
+    """
+    if not isinstance(graph, (nx.DiGraph, rx.PyDiGraph)):
+        raise ValueError(
+            f"Input graph must be a nx.DiGraph or rx.PyDiGraph, got {type(graph).__name__}"
+        )
+
+    coeffs = []
+    ops = []
+
+    is_rx = isinstance(graph, rx.PyDiGraph)
+    edges_to_qubits = edges_to_wires(graph)
+    graph_nodes = graph.node_indexes() if is_rx else graph.nodes
+    graph_edges = sorted(graph.edge_list()) if is_rx else graph.edges
+
+    # In RX each node is assigned to an integer index starting from 0;
+    # thus, we use the following lambda function to get node-values.
+    get_nvalues = lambda T: (graph.nodes().index(T[0]), graph.nodes().index(T[1])) if is_rx else T
+
+    for node in graph_nodes:
+        out_edge = (edge[0], node)
+        in_edge = (node, edge[1])
+        if node not in edge and out_edge in graph_edges and in_edge in graph_edges:
+            wire = edges_to_qubits[get_nvalues(edge)]
+            out_wire = edges_to_qubits[get_nvalues(out_edge)]
+            in_wire = edges_to_qubits[get_nvalues(in_edge)]
+
+            t = qml.X(wire) @ qml.X(out_wire) @ qml.X(in_wire)
+            ops.append(t)
+
+            t = qml.Y(wire) @ qml.Y(out_wire) @ qml.X(in_wire)
+            ops.append(t)
+
+            t = qml.Y(wire) @ qml.X(out_wire) @ qml.Y(in_wire)
+            ops.append(t)
+
+            t = qml.X(wire) @ qml.Y(out_wire) @ qml.Y(in_wire)
+            ops.append(t)
+
+            coeffs.extend([0.25, 0.25, 0.25, -0.25])
+
+    return qml.Hamiltonian(coeffs, ops)
+
+def out_flow_constraint(graph: Union[nx.DiGraph, rx.PyDiGraph]) -> qml.operation.Operator:
+    r"""Calculates the `out flow constraint <https://1qbit.com/whitepaper/arbitrage/>`__
+    Hamiltonian for the maximum-weighted cycle problem.
+
+    Given a subset of edges in a directed graph, the out-flow constraint imposes that at most one
+    edge can leave any given node, i.e., for all :math:`i`:
+
+    .. math:: \sum_{j,(i,j)\in E}x_{ij} \leq 1,
+
+    where :math:`E` are the edges of the graph and :math:`x_{ij}` is a binary number that selects
+    whether to include the edge :math:`(i, j)`.
+
+    A set of edges satisfies the out-flow constraint whenever the following Hamiltonian is minimized:
+
+    .. math::
+
+        \sum_{i\in V}\left(d_{i}^{out}(d_{i}^{out} - 2)\mathbb{I}
+        - 2(d_{i}^{out}-1)\sum_{j,(i,j)\in E}\hat{Z}_{ij} +
+        \left( \sum_{j,(i,j)\in E}\hat{Z}_{ij} \right)^{2}\right)
+
+
+    where :math:`V` are the graph vertices, :math:`d_{i}^{\rm out}` is the outdegree of node
+    :math:`i`, and :math:`Z_{ij}` is a qubit Pauli-Z matrix acting
+    upon the qubit specified by the pair :math:`(i, j)`. Mapping from edges to wires can be achieved
+    using :func:`~.edges_to_wires`.
+
+    Args:
+        graph (nx.DiGraph or rx.PyDiGraph): the directed graph specifying possible edges
+
+    Returns:
+        qml.Hamiltonian: the out flow constraint Hamiltonian
+
+    Raises:
+        ValueError: if the input graph is not directed
+    """
+    if not isinstance(graph, (nx.DiGraph, rx.PyDiGraph)):
+        raise ValueError(
+            f"Input graph must be a nx.DiGraph or rx.PyDiGraph, got {type(graph).__name__}"
+        )
+
+    if isinstance(graph, (nx.DiGraph, rx.PyDiGraph)) and not hasattr(graph, "out_edges"):
+        raise ValueError("Input graph must be directed")
+
+    hamiltonian = qml.Hamiltonian([], [])
+    graph_nodes = graph.node_indexes() if isinstance(graph, rx.PyDiGraph) else graph.nodes
+
+    for node in graph_nodes:
+        hamiltonian += _inner_out_flow_constraint_hamiltonian(graph, node)
+
+    return hamiltonian
+
+def net_flow_constraint(graph: Union[nx.DiGraph, rx.PyDiGraph]) -> qml.operation.Operator:
+    r"""Calculates the `net flow constraint <https://doi.org/10.1080/0020739X.2010.526248>`__
+    Hamiltonian for the maximum-weighted cycle problem.
+
+    Given a subset of edges in a directed graph, the net-flow constraint imposes that the number of
+    edges leaving any given node is equal to the number of edges entering the node, i.e.,
+
+    .. math:: \sum_{j, (i, j) \in E} x_{ij} = \sum_{j, (j, i) \in E} x_{ji},
+
+    for all nodes :math:`i`, where :math:`E` are the edges of the graph and :math:`x_{ij}` is a
+    binary number that selects whether to include the edge :math:`(i, j)`.
+
+    A set of edges has zero net flow whenever the following Hamiltonian is minimized:
+
+    .. math::
+
+        \sum_{i \in V} \left((d_{i}^{\rm out} - d_{i}^{\rm in})\mathbb{I} -
+        \sum_{j, (i, j) \in E} Z_{ij} + \sum_{j, (j, i) \in E} Z_{ji} \right)^{2},
+
+    where :math:`V` are the graph vertices, :math:`d_{i}^{\rm out}` and :math:`d_{i}^{\rm in}` are
+    the outdegree and indegree, respectively, of node :math:`i` and :math:`Z_{ij}` is a qubit
+    Pauli-Z matrix acting upon the wire specified by the pair :math:`(i, j)`. Mapping from edges to
+    wires can be achieved using :func:`~.edges_to_wires`.
+
+
+    Args:
+        graph (nx.DiGraph or rx.PyDiGraph): the directed graph specifying possible edges
+
+    Returns:
+        qml.Hamiltonian: the net-flow constraint Hamiltonian
+
+    Raises:
+        ValueError: if the input graph is not directed
+    """
+    if isinstance(graph, (nx.DiGraph, rx.PyDiGraph)) and (
+        not hasattr(graph, "in_edges") or not hasattr(graph, "out_edges")
+    ):
+        raise ValueError("Input graph must be directed")
+
+    if not isinstance(graph, (nx.DiGraph, rx.PyDiGraph)):
+        raise ValueError(
+            f"Input graph must be a nx.DiGraph or rx.PyDiGraph, got {type(graph).__name__}"
+        )
+
+    hamiltonian = qml.Hamiltonian([], [])
+    graph_nodes = graph.node_indexes() if isinstance(graph, rx.PyDiGraph) else graph.nodes
+
+    for node in graph_nodes:
+        hamiltonian += _inner_net_flow_constraint_hamiltonian(graph, node)
+
+    return hamiltonian
+
+def _inner_net_flow_constraint_hamiltonian(
+    graph: Union[nx.DiGraph, rx.PyDiGraph], node: int
+) -> qml.operation.Operator:
+    r"""Calculates the squared inner portion of the Hamiltonian in :func:`net_flow_constraint`.
+
+
+    For a given :math:`i`, this function returns:
+
+    .. math::
+
+        \left((d_{i}^{\rm out} - d_{i}^{\rm in})\mathbb{I} -
+        \sum_{j, (i, j) \in E} Z_{ij} + \sum_{j, (j, i) \in E} Z_{ji} \right)^{2}.
+
+    Args:
+        graph (nx.DiGraph or rx.PyDiGraph): the directed graph specifying possible edges
+        node: a fixed node
+
+    Returns:
+        qml.Hamiltonian: The inner part of the net-flow constraint Hamiltonian.
+    """
+    if not isinstance(graph, (nx.DiGraph, rx.PyDiGraph)):
+        raise ValueError(
+            f"Input graph must be a nx.DiGraph or rx.PyDiGraph, got {type(graph).__name__}"
+        )
+
+    edges_to_qubits = edges_to_wires(graph)
+
+    coeffs = []
+    ops = []
+
+    is_rx = isinstance(graph, rx.PyDiGraph)
+
+    out_edges = graph.out_edges(node)
+    in_edges = graph.in_edges(node)
+
+    # To ensure out_edges and in_edges methods in both RX and NX return
+    # the lists of edges in the same order, we sort results.
+    if is_rx:
+        out_edges = sorted(out_edges)
+        in_edges = sorted(in_edges)
+
+    # In RX each node is assigned to an integer index starting from 0;
+    # thus, we use the following lambda function to get node-values.
+    get_nvalues = lambda T: (graph.nodes().index(T[0]), graph.nodes().index(T[1])) if is_rx else T
+
+    coeffs.append(len(out_edges) - len(in_edges))
+    ops.append(qml.Identity(0))
+
+    for edge in out_edges:
+        if len(edge) > 2:
+            edge = tuple(edge[:2])
+        wires = (edges_to_qubits[get_nvalues(edge)],)
+        coeffs.append(-1)
+        ops.append(qml.Z(wires))
+
+    for edge in in_edges:
+        if len(edge) > 2:
+            edge = tuple(edge[:2])
+        wires = (edges_to_qubits[get_nvalues(edge)],)
+        coeffs.append(1)
+        ops.append(qml.Z(wires))
+
+    coeffs, ops = _square_hamiltonian_terms(coeffs, ops)
+    H = qml.Hamiltonian(coeffs, ops)
+    H = H.simplify()
+    # store the valuable information that all observables are in one commuting group
+    H.grouping_indices = [list(range(len(H.ops)))]
+    return H
+

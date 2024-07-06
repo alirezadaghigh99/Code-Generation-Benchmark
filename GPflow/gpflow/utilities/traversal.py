@@ -25,3 +25,38 @@ def freeze(input_module: M) -> M:
     module_copy = deepcopy(input_module, memo_tensors)
     return module_copy
 
+def tabulate_module_summary(module: tf.Module, tablefmt: Optional[str] = None) -> str:
+    def get_transform(path: Path, var: LeafComponent) -> Optional[str]:
+        if hasattr(var, "transform") and var.transform is not None:
+            if isinstance(var.transform, tfp.bijectors.Chain):
+                return " + ".join(b.__class__.__name__ for b in var.transform.bijectors[::-1])
+            return var.transform.__class__.__name__  # type: ignore[no-any-return]
+        return None
+
+    def get_prior(path: Path, var: LeafComponent) -> Optional[str]:
+        if hasattr(var, "prior") and var.prior is not None:
+            return var.prior.name  # type: ignore[no-any-return]
+        return None
+
+    # list of (column_name: str, column_getter: Callable[[tf.Variable], str]) tuples:
+    column_definition = [
+        ("name", lambda path, var: path),
+        ("class", lambda path, var: var.__class__.__name__),
+        ("transform", get_transform),
+        ("prior", get_prior),
+        ("trainable", lambda path, var: var.trainable),
+        ("shape", lambda path, var: var.shape),
+        ("dtype", lambda path, var: var.dtype.name),
+        ("value", lambda path, var: _str_tensor_value(var.numpy())),
+    ]
+    column_names, column_getters = zip(*column_definition)
+
+    merged_leaf_components = _merge_leaf_components(leaf_components(module))
+
+    column_values = [
+        [getter(path, variable) for getter in column_getters]
+        for path, variable in merged_leaf_components.items()
+    ]
+    # mypy claims it's wrong to pass a `None` tablefmt below. I think `tabulate` has bad type hints.
+    return tabulate(column_values, headers=column_names, tablefmt=tablefmt)  # type: ignore[arg-type]
+

@@ -35,3 +35,60 @@ def create_test_sharder(
     else:
         raise ValueError(f"Sharder not supported {sharder_type}")
 
+def copy_state_dict(
+    loc: Dict[str, Union[torch.Tensor, ShardedTensor, DTensor]],
+    glob: Dict[str, torch.Tensor],
+    exclude_predfix: Optional[str] = None,
+) -> None:
+    for name, tensor in loc.items():
+        if exclude_predfix is not None and name.startswith(exclude_predfix):
+            continue
+        else:
+            assert name in glob, name
+        global_tensor = glob[name]
+        if isinstance(global_tensor, ShardedTensor):
+            global_tensor = global_tensor.local_shards()[0].tensor
+        if isinstance(global_tensor, DTensor):
+            # pyre-ignore[16]
+            global_tensor = global_tensor.to_local().local_shards()[0]
+
+        if isinstance(tensor, ShardedTensor):
+            for local_shard in tensor.local_shards():
+                assert global_tensor.ndim == local_shard.tensor.ndim
+                shard_meta = local_shard.metadata
+                t = global_tensor.detach()
+                if t.ndim == 1:
+                    t = t[
+                        shard_meta.shard_offsets[0] : shard_meta.shard_offsets[0]
+                        + local_shard.tensor.shape[0]
+                    ]
+                elif t.ndim == 2:
+                    t = t[
+                        shard_meta.shard_offsets[0] : shard_meta.shard_offsets[0]
+                        + local_shard.tensor.shape[0],
+                        shard_meta.shard_offsets[1] : shard_meta.shard_offsets[1]
+                        + local_shard.tensor.shape[1],
+                    ]
+                else:
+                    raise ValueError("Tensors with ndim > 2 are not supported")
+                local_shard.tensor.copy_(t)
+        elif isinstance(tensor, DTensor):
+            shard_offsets = tensor.to_local().local_offsets()  # pyre-ignore[16]
+            for i, local_shard in enumerate(tensor.to_local().local_shards()):
+                assert global_tensor.ndim == local_shard.ndim
+                t = global_tensor.detach()
+                local_shape = local_shard.shape
+                global_offset = shard_offsets[i]
+                if t.ndim == 1:
+                    t = t[global_offset[0] : global_offset[0] + local_shape[0]]
+                elif t.ndim == 2:
+                    t = t[
+                        global_offset[0] : global_offset[0] + local_shape[0],
+                        global_offset[1] : global_offset[1] + local_shape[1],
+                    ]
+                else:
+                    raise ValueError("Tensors with ndim > 2 are not supported")
+                local_shard.copy_(t)
+        else:
+            tensor.copy_(global_tensor)
+

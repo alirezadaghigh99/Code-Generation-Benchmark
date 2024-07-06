@@ -136,3 +136,34 @@ def cudart():
     _lazy_init()
     return _cudart
 
+def set_device(device: _device_t) -> None:
+    r"""Set the current device.
+
+    Usage of this function is discouraged in favor of :any:`device`. In most
+    cases it's better to use ``CUDA_VISIBLE_DEVICES`` environmental variable.
+
+    Args:
+        device (torch.device or int): selected device. This function is a no-op
+            if this argument is negative.
+    """
+    device = _get_device_index(device)
+    if device >= 0:
+        torch._C._cuda_setDevice(device)
+
+def default_stream(device: Optional[_device_t] = None) -> Stream:
+    r"""Return the default :class:`Stream` for a given device.
+
+    Args:
+        device (torch.device or int, optional): selected device. Returns
+            the default :class:`Stream` for the current device, given by
+            :func:`~torch.cuda.current_device`, if :attr:`device` is ``None``
+            (default).
+    """
+    _lazy_init()
+    streamdata = torch._C._cuda_getDefaultStream(
+        _get_device_index(device, optional=True)
+    )
+    return Stream(
+        stream_id=streamdata[0], device_index=streamdata[1], device_type=streamdata[2]
+    )
+

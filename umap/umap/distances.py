@@ -19,3 +19,19 @@ def chunked_parallel_special_metric(X, Y=None, metric=hellinger, chunk_size=16):
                     result[i, j] = metric(X[i], XX[j])
     return result
 
+def pairwise_special_metric(X, Y=None, metric="hellinger", kwds=None, force_all_finite=True):
+    if callable(metric):
+        if kwds is not None:
+            kwd_vals = tuple(kwds.values())
+        else:
+            kwd_vals = ()
+
+        @numba.njit(fastmath=True)
+        def _partial_metric(_X, _Y=None):
+            return metric(_X, _Y, *kwd_vals)
+
+        return pairwise_distances(X, Y, metric=_partial_metric, force_all_finite=force_all_finite)
+    else:
+        special_metric_func = named_distances[metric]
+    return parallel_special_metric(X, Y, metric=special_metric_func)
+

@@ -158,3 +158,62 @@ def norm(tensor, like=None, **kwargs):
 
     return norm(tensor, **kwargs)
 
+def concatenate(values, axis=0, like=None):
+    """Concatenate a sequence of tensors along the specified axis.
+
+    .. warning::
+
+        Tensors that are incompatible (such as Torch and TensorFlow tensors)
+        cannot both be present.
+
+    Args:
+        values (Sequence[tensor_like]): Sequence of tensor-like objects to
+            concatenate. The objects must have the same shape, except in the dimension corresponding
+            to axis (the first, by default).
+        axis (int): The axis along which the input tensors are concatenated. If axis is None,
+            tensors are flattened before use. Default is 0.
+
+    Returns:
+        tensor_like: The concatenated tensor.
+
+    **Example**
+
+    >>> x = tf.constant([0.6, 0.1, 0.6])
+    >>> y = tf.Variable([0.1, 0.2, 0.3])
+    >>> z = np.array([5., 8., 101.])
+    >>> concatenate([x, y, z])
+    <tf.Tensor: shape=(9,), dtype=float32, numpy=
+    array([6.00e-01, 1.00e-01, 6.00e-01, 1.00e-01, 2.00e-01, 3.00e-01,
+           5.00e+00, 8.00e+00, 1.01e+02], dtype=float32)>
+    """
+
+    if like == "torch":
+        import torch
+
+        device = (
+            "cuda"
+            if any(t.device.type == "cuda" for t in values if isinstance(t, torch.Tensor))
+            else "cpu"
+        )
+
+        if axis is None:
+            # flatten and then concatenate zero'th dimension
+            # to reproduce numpy's behaviour
+            values = [
+                np.flatten(torch.as_tensor(t, device=torch.device(device)))  # pragma: no cover
+                for t in values
+            ]
+            axis = 0
+        else:
+            values = [
+                torch.as_tensor(t, device=torch.device(device)) for t in values  # pragma: no cover
+            ]
+
+    if like == "tensorflow" and axis is None:
+        # flatten and then concatenate zero'th dimension
+        # to reproduce numpy's behaviour
+        values = [np.flatten(np.array(t)) for t in values]
+        axis = 0
+
+    return np.concatenate(values, axis=axis, like=like)
+

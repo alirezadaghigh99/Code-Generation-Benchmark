@@ -127,3 +127,14 @@ def chunked_cross_entropy(
     #   `x.maximum(torch.ones_like(x))` pattern we avoid a cudaStreamSynchronize.
     return torch.cat(loss_chunks).sum() / non_masked_elems.maximum(torch.ones_like(non_masked_elems))
 
+def num_parameters(module: nn.Module, requires_grad: Optional[bool] = None) -> int:
+    total = 0
+    for p in module.parameters():
+        if requires_grad is None or p.requires_grad == requires_grad:
+            if hasattr(p, "quant_state"):
+                # bitsandbytes 4bit layer support
+                total += math.prod(p.quant_state.shape)
+            else:
+                total += p.numel()
+    return total
+

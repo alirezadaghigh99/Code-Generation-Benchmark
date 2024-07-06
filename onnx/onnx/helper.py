@@ -396,3 +396,47 @@ def make_opsetid(domain: str, version: int) -> OperatorSetIdProto:
     opsetid.version = version
     return opsetid
 
+def make_tensor_type_proto(
+    elem_type: int,
+    shape: Sequence[str | int | None] | None,
+    shape_denotation: list[str] | None = None,
+) -> TypeProto:
+    """Makes a Tensor TypeProto based on the data type and shape."""
+    type_proto = TypeProto()
+    tensor_type_proto = type_proto.tensor_type
+    tensor_type_proto.elem_type = elem_type
+    tensor_shape_proto = tensor_type_proto.shape
+
+    if shape is not None:
+        # You might think this is a no-op (extending a normal Python
+        # list by [] certainly is), but protobuf lists work a little
+        # differently; if a field is never set, it is omitted from the
+        # resulting protobuf; a list that is explicitly set to be
+        # empty will get an (empty) entry in the protobuf. This
+        # difference is visible to our consumers, so make sure we emit
+        # an empty shape!
+        tensor_shape_proto.dim.extend([])
+
+        if shape_denotation and len(shape_denotation) != len(shape):
+            raise ValueError(
+                "Invalid shape_denotation. Must be of the same length as shape."
+            )
+
+        for i, d in enumerate(shape):
+            dim = tensor_shape_proto.dim.add()
+            if d is None:
+                pass
+            elif isinstance(d, int):
+                dim.dim_value = d
+            elif isinstance(d, str):
+                dim.dim_param = d
+            else:
+                raise ValueError(
+                    f"Invalid item in shape: {d}. Needs to be of int or str."
+                )
+
+            if shape_denotation:
+                dim.denotation = shape_denotation[i]
+
+    return type_proto
+

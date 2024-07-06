@@ -158,3 +158,27 @@ def terminate_epoch(self) -> None:
         )
         self.should_terminate_single_epoch = True
 
+def fire_event(self, event_name: Any) -> None:
+        """Execute all the handlers associated with given event.
+
+        This method executes all handlers associated with the event
+        `event_name`. This is the method used in :meth:`~ignite.engine.engine.Engine.run` to call the
+        core events found in :class:`~ignite.engine.events.Events`.
+
+        Custom events can be fired if they have been registered before with
+        :meth:`~ignite.engine.engine.Engine.register_events`. The engine `state` attribute should be used
+        to exchange "dynamic" data among `process_function` and handlers.
+
+        This method is called automatically for core events. If no custom
+        events are used in the engine, there is no need for the user to call
+        the method.
+
+        Args:
+            event_name: event for which the handlers should be executed. Valid
+                events are from :class:`~ignite.engine.events.Events` or any `event_name` added by
+                :meth:`~ignite.engine.engine.Engine.register_events`.
+
+        """
+        self._assert_allowed_event(event_name)
+        return self._fire_event(event_name)
+

@@ -124,3 +124,33 @@ def decode_jpeg(
         output = torch.ops.image.decode_jpeg(input, mode.value, apply_exif_orientation)
     return output
 
+def decode_image(
+    input: torch.Tensor,
+    mode: ImageReadMode = ImageReadMode.UNCHANGED,
+    apply_exif_orientation: bool = False,
+) -> torch.Tensor:
+    """
+    Detect whether an image is a JPEG, PNG or GIF and performs the appropriate
+    operation to decode the image into a 3 dimensional RGB or grayscale Tensor.
+
+    Optionally converts the image to the desired format.
+    The values of the output tensor are uint8 in [0, 255].
+
+    Args:
+        input (Tensor): a one dimensional uint8 tensor containing the raw bytes of the
+            PNG or JPEG image.
+        mode (ImageReadMode): the read mode used for optionally converting the image.
+            Default: ``ImageReadMode.UNCHANGED``.
+            See ``ImageReadMode`` class for more information on various
+            available modes. Ignored for GIFs.
+        apply_exif_orientation (bool): apply EXIF orientation transformation to the output tensor.
+            Ignored for GIFs. Default: False.
+
+    Returns:
+        output (Tensor[image_channels, image_height, image_width])
+    """
+    if not torch.jit.is_scripting() and not torch.jit.is_tracing():
+        _log_api_usage_once(decode_image)
+    output = torch.ops.image.decode_image(input, mode.value, apply_exif_orientation)
+    return output
+

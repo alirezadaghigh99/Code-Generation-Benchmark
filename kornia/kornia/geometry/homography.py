@@ -99,3 +99,69 @@ def sample_is_valid_for_homography(points1: Tensor, points2: Tensor) -> Tensor:
     sample_is_valid = (left_sign == right_sign).view(-1, 4).min(dim=1)[0]
     return sample_is_valid
 
+def find_homography_dlt(
+    points1: torch.Tensor, points2: torch.Tensor, weights: Optional[torch.Tensor] = None, solver: str = "lu"
+) -> torch.Tensor:
+    r"""Compute the homography matrix using the DLT formulation.
+
+    The linear system is solved by using the Weighted Least Squares Solution for the 4 Points algorithm.
+
+    Args:
+        points1: A set of points in the first image with a tensor shape :math:`(B, N, 2)`.
+        points2: A set of points in the second image with a tensor shape :math:`(B, N, 2)`.
+        weights: Tensor containing the weights per point correspondence with a shape of :math:`(B, N)`.
+        solver: variants: svd, lu.
+
+
+    Returns:
+        the computed homography matrix with shape :math:`(B, 3, 3)`.
+    """
+    if points1.shape != points2.shape:
+        raise AssertionError(points1.shape)
+    if points1.shape[1] < 4:
+        raise AssertionError(points1.shape)
+    KORNIA_CHECK_SHAPE(points1, ["B", "N", "2"])
+    KORNIA_CHECK_SHAPE(points2, ["B", "N", "2"])
+
+    device, dtype = _extract_device_dtype([points1, points2])
+
+    eps: float = 1e-8
+    points1_norm, transform1 = normalize_points(points1)
+    points2_norm, transform2 = normalize_points(points2)
+
+    x1, y1 = torch.chunk(points1_norm, dim=-1, chunks=2)  # BxNx1
+    x2, y2 = torch.chunk(points2_norm, dim=-1, chunks=2)  # BxNx1
+    ones, zeros = torch.ones_like(x1), torch.zeros_like(x1)
+
+    # DIAPO 11: https://www.uio.no/studier/emner/matnat/its/nedlagte-emner/UNIK4690/v16/forelesninger/lecture_4_3-estimating-homographies-from-feature-correspondences.pdf  # noqa: E501
+    ax = torch.cat([zeros, zeros, zeros, -x1, -y1, -ones, y2 * x1, y2 * y1, y2], dim=-1)
+    ay = torch.cat([x1, y1, ones, zeros, zeros, zeros, -x2 * x1, -x2 * y1, -x2], dim=-1)
+    A = torch.cat((ax, ay), dim=-1).reshape(ax.shape[0], -1, ax.shape[-1])
+
+    if weights is None:
+        # All points are equally important
+        A = A.transpose(-2, -1) @ A
+    else:
+        # We should use provided weights
+        if not (len(weights.shape) == 2 and weights.shape == points1.shape[:2]):
+            raise AssertionError(weights.shape)
+        w_diag = torch.diag_embed(weights.unsqueeze(dim=-1).repeat(1, 1, 2).reshape(weights.shape[0], -1))
+        A = A.transpose(-2, -1) @ w_diag @ A
+
+    if solver == "svd":
+        try:
+            _, _, V = _torch_svd_cast(A)
+        except RuntimeError:
+            warnings.warn("SVD did not converge", RuntimeWarning)
+            return torch.empty((points1_norm.size(0), 3, 3), device=device, dtype=dtype)
+        H = V[..., -1].view(-1, 3, 3)
+    elif solver == "lu":
+        B = torch.ones(A.shape[0], A.shape[1], device=device, dtype=dtype)
+        sol, _, _ = safe_solve_with_mask(B, A)
+        H = sol.reshape(-1, 3, 3)
+    else:
+        raise NotImplementedError
+    H = safe_inverse_with_mask(transform2)[0] @ (H @ transform1)
+    H_norm = H / (H[..., -1:, -1:] + eps)
+    return H_norm
+

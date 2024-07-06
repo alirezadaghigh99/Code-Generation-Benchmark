@@ -181,3 +181,6 @@ def convolution(
         None,
     )
 
+def erf(g: jit_utils.GraphContext, input):
+    return g.op("Erf", input)
+
