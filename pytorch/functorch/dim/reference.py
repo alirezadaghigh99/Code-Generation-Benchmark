@@ -111,3 +111,29 @@ def split(self, split_size_or_sections, dim=0):
         for d, t in zip(split_size_or_sections, _orig_split(self, sizes, dim=dim))
     )
 
+class isin:
+    def __contains__(self, item):
+        for x in self:
+            if seq(item, x):
+                return True
+        return False
+
+    def index(self, item):
+        for i, x in enumerate(self):
+            if seq(item, x):
+                return i
+        raise ValueError
+
+class isin:
+    def __contains__(self, item):
+        for x in self:
+            if seq(item, x):
+                return True
+        return False
+
+    def index(self, item):
+        for i, x in enumerate(self):
+            if seq(item, x):
+                return i
+        raise ValueError
+

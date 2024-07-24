@@ -49,3 +49,7 @@ def norm():
 def broadcast(a, b):
             return a + b
 
+class D(C, B):
+            def __init__(self):
+                super().__init__()
+

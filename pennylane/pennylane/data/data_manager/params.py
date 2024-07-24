@@ -40,3 +40,32 @@ def format_param_args(param: ParamName, details: Any) -> Union[ParamArg, List[Pa
 
     return details
 
+class Description(typing.Mapping[ParamName, ParamVal]):
+    """An immutable and hashable dictionary that contains all the parameter
+    values for a dataset."""
+
+    def __init__(self, params: typing.Iterable[Tuple[ParamName, ParamVal]]):
+        self.__data = dict(params)
+        self.__hash = None
+
+    def __getitem__(self, __key: ParamName) -> ParamVal:
+        return self.__data[__key]
+
+    def __iter__(self) -> typing.Iterator[ParamName]:
+        return iter(self.__data)
+
+    def __len__(self) -> int:
+        return len(self.__data)
+
+    def __hash__(self) -> int:
+        if not self.__hash:
+            self.__hash = hash(tuple(self.__data))
+
+        return self.__hash
+
+    def __str__(self) -> str:
+        return str(self.__data)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(self.__data)})"
+

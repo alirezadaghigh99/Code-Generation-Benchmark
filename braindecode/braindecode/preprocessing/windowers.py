@@ -289,3 +289,95 @@ def create_windows_from_target_channels(
     )
     return BaseConcatDataset(list_of_windows_ds)
 
+class _LazyDataFrame:
+    """
+    DataFrame-like object that lazily computes values (experimental).
+
+    This class emulates some features of a pandas DataFrame, but computes
+    the values on-the-fly when they are accessed. This is useful for
+    very long DataFrames with repetitive values.
+    Only the methods used by EEGWindowsDataset on its metadata are implemented.
+
+    Parameters:
+    -----------
+    length: int
+        The length of the dataframe.
+    functions: dict[str, Callable[[int], Any]]
+        A dictionary mapping column names to functions that take an index and
+        return the value of the column at that index.
+    columns: list[str]
+        The names of the columns in the dataframe.
+    series: bool
+        Whether the object should emulate a series or a dataframe.
+    """
+
+    def __init__(
+        self,
+        length: int,
+        functions: dict[str, Callable[[int], Any]],
+        columns: list[str],
+        series: bool = False,
+    ):
+        if not (isinstance(length, int) and length >= 0):
+            raise ValueError("Length must be a positive integer.")
+        if not all(c in functions for c in columns):
+            raise ValueError("All columns must have a corresponding function.")
+        if series and len(columns) != 1:
+            raise ValueError("Series must have exactly one column.")
+        self.length = length
+        self.functions = functions
+        self.columns = columns
+        self.series = series
+
+    @property
+    def loc(self):
+        return self
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, key):
+        if not isinstance(key, tuple):
+            key = (key, self.columns)
+        if len(key) == 1:
+            key = (key[0], self.columns)
+        if not len(key) == 2:
+            raise IndexError(
+                f"index must be either [row] or [row, column], got [{', '.join(map(str, key))}]."
+            )
+        row, col = key
+        if col == slice(None):  # all columns (i.e., call to df[row, :])
+            col = self.columns
+        one_col = False
+        if isinstance(col, str):  # one column
+            one_col = True
+            col = [col]
+        else:  # multiple columns
+            col = list(col)
+        if not all(c in self.columns for c in col):
+            raise IndexError(
+                f"All columns must be present in the dataframe with columns {self.columns}. Got {col}."
+            )
+        if row == slice(None):  # all rows (i.e., call to df[:] or df[:, col])
+            return _LazyDataFrame(self.length, self.functions, col)
+        if not isinstance(row, int):
+            raise NotImplementedError(
+                "Row indexing only supports either a single integer or a null slice (i.e., df[:])."
+            )
+        if not (0 <= row < self.length):
+            raise IndexError(f"Row index {row} is out of bounds.")
+        if self.series or one_col:
+            return self.functions[col[0]](row)
+        return pd.Series({c: self.functions[c](row) for c in col})
+
+    def to_numpy(self):
+        return _LazyDataFrame(
+            length=self.length,
+            functions=self.functions,
+            columns=self.columns,
+            series=len(self.columns) == 1,
+        )
+
+    def to_list(self):
+        return self.to_numpy()
+

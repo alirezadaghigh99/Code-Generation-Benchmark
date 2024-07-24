@@ -141,3 +141,282 @@ def define(qualname, schema, *, lib=None, tags=()):
         )
     lib.define(name + schema, alias_analysis="", tags=tags)
 
+class Library:
+    """
+    A class to create libraries that can be used to register new operators or
+    override operators in existing libraries from Python.
+    A user can optionally pass in a dispatch keyname if they only want to register
+    kernels corresponding to only one specific dispatch key.
+
+    To create a library to override operators in an existing library (with name ns), set the kind to "IMPL".
+    To create a new library (with name ns) to register new operators, set the kind to "DEF".
+    To create a fragment of a possibly existing library to register operators (and bypass
+    the limitation that there is only one library for a given namespace), set the kind to
+    "FRAGMENT".
+
+    Args:
+        ns: library name
+        kind: "DEF", "IMPL" (default: "IMPL"), "FRAGMENT"
+        dispatch_key: PyTorch dispatch key (default: "")
+    """
+
+    def __init__(self, ns, kind, dispatch_key=""):
+        if kind not in ("IMPL", "DEF", "FRAGMENT"):
+            raise ValueError("Unsupported kind: ", kind)
+
+        if ns in _reserved_namespaces and (kind == "DEF" or kind == "FRAGMENT"):
+            raise ValueError(
+                ns,
+                " is a reserved namespace. Please try creating a library with another name.",
+            )
+
+        frame = traceback.extract_stack(limit=3)[0]
+        filename, lineno = frame.filename, frame.lineno
+        self.m: Optional[Any] = torch._C._dispatch_library(
+            kind, ns, dispatch_key, filename, lineno
+        )
+        self.ns = ns
+        self._op_defs: Set[str] = set()
+        self._op_impls: Set[str] = set()
+        self._registration_handles: List[torch._library.utils.RegistrationHandle] = []
+        self.kind = kind
+        self.dispatch_key = dispatch_key
+        # Use a finalizer to setup the "destructor" instead of __del__.
+        # Python __del__ can lead to weird things (globals and locals may already
+        # be gone when __del__ actually gets called!). finalizers help the
+        # situation because it lets us capture references and keeps them alive
+        weakref.finalize(
+            self,
+            _del_library,
+            _impls,
+            self._op_impls,
+            _defs,
+            self._op_defs,
+            self._registration_handles,
+        )
+
+    def __repr__(self):
+        return f"Library(kind={self.kind}, ns={self.ns}, dispatch_key={self.dispatch_key})>"
+
+    def define(self, schema, alias_analysis="", *, tags=()):
+        r"""Defines a new operator and its semantics in the ns namespace.
+
+        Args:
+            schema: function schema to define a new operator.
+            alias_analysis (optional): Indicates if the aliasing properties of the operator arguments can be
+                                       inferred from the schema (default behavior) or not ("CONSERVATIVE").
+            tags (Tag | Sequence[Tag]): one or more torch.Tag to apply to this
+                                       operator. Tagging an operator changes the operator's behavior
+                                       under various PyTorch subsystems; please read the docs for the
+                                       torch.Tag carefully before applying it.
+
+        Returns:
+            name of the operator as inferred from the schema.
+
+        Example::
+            >>> my_lib = Library("mylib", "DEF")
+            >>> my_lib.define("sum(Tensor self) -> Tensor")
+        """
+        # This is added because we also want to disallow PURE_FUNCTION alias analysis which is a valid
+        # AliasAnalysis type in C++
+        if alias_analysis not in ["", "FROM_SCHEMA", "CONSERVATIVE"]:
+            raise RuntimeError(f"Invalid alias_analysis type {alias_analysis}")
+        assert self.m is not None
+        if isinstance(tags, torch.Tag):
+            tags = (tags,)
+
+        name = schema.split("(")[0]
+        packet_name = name.split(".")[0] if "." in name else name
+        has_preexisting_packet = hasattr(torch.ops, self.ns) and hasattr(
+            getattr(torch.ops, self.ns), packet_name
+        )
+
+        result = self.m.define(schema, alias_analysis, tuple(tags))
+        name = schema.split("(")[0]
+        qualname = self.ns + "::" + name
+
+        # If the OpOverloadPacket exists already, then this means we're adding a
+        # new OpOverload for it. Refresh the packet to include the new OpOverload.
+        if has_preexisting_packet:
+            ns = getattr(torch.ops, self.ns)
+            packet = getattr(ns, packet_name)
+            torch._ops._refresh_packet(packet)
+
+        self._op_defs.add(qualname)
+        _defs.add(qualname)
+        return result
+
+    def _register_fake(self, op_name, fn, _stacklevel=1):
+        r"""Registers the fake impl for an operator defined in the library."""
+        source = torch._library.utils.get_source(_stacklevel + 1)
+        frame = sys._getframe(_stacklevel)
+        caller_module = inspect.getmodule(frame)
+        # Can be none if you call register_fake from somewhere there isn't a module
+        # (e.g. __main__)
+        caller_module_name = None if caller_module is None else caller_module.__name__
+
+        # TODO(rzou): We're gonna need to stage this change with torchvision,
+        # since torchvision is github first.
+        if caller_module_name is not None and caller_module_name.startswith(
+            "torchvision."
+        ):
+            caller_module_name = None
+
+        qualname = f"{self.ns}::{op_name}"
+        entry = torch._library.simple_registry.singleton.find(qualname)
+        if caller_module_name is not None:
+            func_to_register = _check_pystubs_once(fn, qualname, caller_module_name)
+        else:
+            func_to_register = fn
+
+        handle = entry.fake_impl.register(func_to_register, source)
+        self._registration_handles.append(handle)
+
+    def _impl_with_aoti_compile(self, op_name, dispatch_key=""):
+        r"""Register the operator to use the AOTI-compiled implementation.
+
+        Args:
+            op_name: operator name (along with the overload) or OpOverload object.
+            dispatch_key: dispatch key that the input function should be registered for. By default, it uses
+                          the dispatch key that the library was created with.
+
+        Example::
+            >>> my_lib = Library("aten", "IMPL")
+            >>> my_lib._impl_with_aoti_compile("div.Tensor", "CPU")
+        """
+        if dispatch_key == "":
+            dispatch_key = self.dispatch_key
+        assert torch.DispatchKeySet(dispatch_key).has(torch._C.DispatchKey.Dense)
+
+        if isinstance(op_name, str):
+            name = op_name
+        elif isinstance(op_name, OpOverload):
+            name = op_name._schema.name
+            overload_name = op_name._schema.overload_name
+            if overload_name != "":
+                name = name + "." + overload_name
+        else:
+            raise RuntimeError(
+                "_impl_with_aoti_compile should be passed either a name or an OpOverload object "
+                "as the first argument"
+            )
+
+        key = self.ns + "/" + name.split("::")[-1] + "/" + dispatch_key
+        if key in _impls:
+            # TODO: in future, add more info about where the existing function is registered (this info is
+            # today already returned by the C++ warning when _impl_with_aoti_compile is called but we error out before that)
+            raise RuntimeError(
+                "This is not allowed since there's already a kernel registered from python overriding {}"
+                "'s behavior for {} dispatch key and {} namespace.".format(
+                    name.split("::")[-1], dispatch_key, self.ns
+                )
+            )
+
+        assert self.m is not None
+        impl_fn: Callable = self.m.impl_with_aoti_compile
+        impl_fn(self.ns, name.split("::")[-1], dispatch_key)
+
+        _impls.add(key)
+        self._op_impls.add(key)
+
+    def impl(self, op_name, fn, dispatch_key="", *, with_keyset=False):
+        r"""Registers the function implementation for an operator defined in the library.
+
+        Args:
+            op_name: operator name (along with the overload) or OpOverload object.
+            fn: function that's the operator implementation for the input dispatch key or :func:`~fallthrough_kernel`
+                to register a fallthrough.
+            dispatch_key: dispatch key that the input function should be registered for. By default, it uses
+                          the dispatch key that the library was created with.
+
+        Example::
+            >>> my_lib = Library("aten", "IMPL")
+            >>> def div_cpu(self, other):
+            >>>     return self * (1 / other)
+            >>> my_lib.impl("div.Tensor", div_cpu, "CPU")
+        """
+        if not callable(fn):
+            raise TypeError(
+                f"Input function is required to be a callable but found type {type(fn)}"
+            )
+        if dispatch_key == "":
+            dispatch_key = self.dispatch_key
+
+        if isinstance(op_name, str):
+            name = op_name
+        elif isinstance(op_name, OpOverload):
+            name = op_name._schema.name
+            overload_name = op_name._schema.overload_name
+            if overload_name != "":
+                name = name + "." + overload_name
+        else:
+            raise RuntimeError(
+                "impl should be passed either a name or an OpOverload object as the first argument"
+            )
+
+        key = self.ns + "/" + name.split("::")[-1] + "/" + dispatch_key
+        if key in _impls:
+            # TODO: in future, add more info about where the existing function is registered (this info is
+            # today already returned by the C++ warning when impl is called but we error out before that)
+            raise RuntimeError(
+                "This is not allowed since there's already a kernel registered from python overriding {}"
+                "'s behavior for {} dispatch key and {} namespace.".format(
+                    name.split("::")[-1], dispatch_key, self.ns
+                )
+            )
+
+        if dispatch_key == "Meta":
+            dispatcher_op_name = name
+            if "::" not in dispatcher_op_name:
+                dispatcher_op_name = f"{self.ns}::{dispatcher_op_name}"
+
+            # Internally, we shouldn't be registering meta kernels for any operators that
+            # have CompositeImplicitAutograd kernels.
+            # Instead, we should be letting those decompositions run, and writing meta kernels
+            # only for the base operators.
+            if torch._C._dispatch_has_kernel_for_dispatch_key(
+                dispatcher_op_name, "CompositeImplicitAutograd"
+            ):
+                raise RuntimeError(
+                    f"We should not register a meta kernel directly to the operator '{name}',"
+                    " because it has a CompositeImplicitAutograd kernel in core."
+                    " Instead we should let the operator decompose, and ensure that we have meta kernels"
+                    " for the base ops that it decomposes into."
+                )
+
+        assert self.m is not None
+        self.m.impl(
+            name,
+            dispatch_key if dispatch_key != "" else "CompositeImplicitAutograd",
+            fn,
+            with_keyset,
+        )
+
+        _impls.add(key)
+        self._op_impls.add(key)
+
+    def _destroy(self):
+        if self.m is not None:
+            self.m.reset()
+        self.m = None
+        for handle in self._registration_handles:
+            handle.destroy()
+        self._registration_handles.clear()
+        global _impls
+        _impls -= self._op_impls
+        for name in self._op_defs:
+            # Delete the cached torch.ops.ns.foo if it was registered.
+            # Otherwise, accessing it leads to a segfault.
+            # It's possible that we only registered an overload in this Library
+            # and another library owns an alive overload.
+            # That's OK - the next time torch.ops.ns.foo gets called, it'll be
+            # recomputed to point at the right collection of overloads.
+            ns, name_with_overload = name.split("::")
+            name = name_with_overload.split(".")[0]
+            if not hasattr(torch.ops, ns):
+                continue
+            namespace = getattr(torch.ops, ns)
+            if not hasattr(namespace, name):
+                continue
+            delattr(namespace, name)
+

@@ -49,3 +49,44 @@ def make_test_cls_with_patches(
 
     return DummyTestClass
 
+class CompileCounter:
+    def __init__(self):
+        self.frame_count = 0
+        self.op_count = 0
+
+    def __call__(self, gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor]):
+        self.frame_count += 1
+        for node in gm.graph.nodes:
+            if "call" in node.op:
+                self.op_count += 1
+        return gm.forward
+
+    def clear(self):
+        self.frame_count = 0
+        self.op_count = 0
+
+class EagerAndRecordGraphs:
+    def __init__(self):
+        self.graphs = []
+
+    def __call__(self, gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor]):
+        self.graphs.append(gm)
+        return gm.forward
+
+class CompileCounterWithBackend:
+    def __init__(self, backend):
+        self.frame_count = 0
+        self.op_count = 0
+        self.backend = backend
+        self.graphs = []
+
+    def __call__(self, gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor]):
+        from .backends.registry import lookup_backend
+
+        self.frame_count += 1
+        for node in gm.graph.nodes:
+            if "call" in node.op:
+                self.op_count += 1
+        self.graphs.append(gm)
+        return lookup_backend(self.backend)(gm, example_inputs)
+

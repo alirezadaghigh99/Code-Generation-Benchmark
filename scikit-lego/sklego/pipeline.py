@@ -62,3 +62,219 @@ def make_debug_pipeline(*steps, **kwargs):
         log_callback=log_callback,
     )
 
+class DebugPipeline(Pipeline):
+    """A pipeline that has a log statement in between each step, useful for debugging purposes.
+
+    See [`sklearn.pipeline.Pipeline`](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html#sklearn.pipeline.Pipeline)
+    for all other parameters other than `log_callback`.
+
+    !!! note
+
+        This implementation is a hack on the original sklearn Pipeline. It aims to have the same behaviour as the
+        original sklearn Pipeline, while changing minimal amount of code.
+
+        The log statement is added by overwriting the cache method of the memory, such that the function called in the
+        cache is wrapped with a functions that calls the log callback function (`log_callback`).
+
+        This hack will break when:
+
+        - The sklearn pipeline initialization function is changed.
+        - The memory is used differently in the fit.
+        - The [`joblib.memory.Memory`](https://joblib.readthedocs.io/en/latest/generated/joblib.Memory.html)
+            changes behaviour of the `cache` method.
+        - The [`joblib.memory.Memory`](https://joblib.readthedocs.io/en/latest/generated/joblib.Memory.html)
+            starts using a `_cache` method.
+
+    Parameters
+    ----------
+    log_callback : Callable | None, default=None
+        The callback function that logs information in between each intermediate step.
+        If set to `"default"`, `default_log_callback` is used.
+
+    Examples
+    --------
+    ```py
+    # Set-up for example
+    import logging
+    import sys
+
+    import numpy as np
+    import pandas as pd
+
+    from sklearn.base import BaseEstimator, TransformerMixin
+    from sklego.pipeline import DebugPipeline
+
+    logging.basicConfig(
+        format=("[%(funcName)s:%(lineno)d] - %(message)s"),
+        level=logging.INFO,
+        stream=sys.stdout,
+        )
+
+    # DebugPipeline set-up
+    n_samples, n_features = 3, 5
+    X = np.zeros((n_samples, n_features))
+    y = np.arange(n_samples)
+
+    class Adder(TransformerMixin, BaseEstimator):
+        def __init__(self, value):
+            self._value = value
+
+        def fit(self, X, y=None):
+            return self
+
+        def transform(self, X):
+            return X + self._value
+
+        def __repr__(self):
+            return f"Adder(value={self._value})"
+
+    steps = [
+        ("add_1", Adder(value=1)),
+        ("add_10", Adder(value=10)),
+        ("add_100", Adder(value=100)),
+        ("add_1000", Adder(value=1000)),
+    ]
+
+    # The DebugPipeline behaves the sames as the Sklearn pipeline.
+    pipe = DebugPipeline(steps)
+
+    _ = pipe.fit(X, y=y)
+    print(pipe.transform(X))
+    # [[1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]]
+
+    # But it has the option to set a `log_callback`, that logs in between each step.
+    pipe = DebugPipeline(steps, log_callback="default")
+
+    _ = pipe.fit(X, y=y)
+    # [default_log_callback:34] - [Adder(value=1)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=10)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=100)] shape=(3, 5) time=0s
+
+    print(pipe.transform(X))
+    # [[1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]]
+
+    # It is possible to set the `log_callback` later then initialisation.
+    pipe = DebugPipeline(steps)
+    pipe.log_callback = "default"
+
+    _ = pipe.fit(X, y=y)
+    # [default_log_callback:34] - [Adder(value=1)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=10)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=100)] shape=(3, 5) time=0s
+
+    print(pipe.transform(X))
+    # [[1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]]
+
+    # It is possible to define your own `log_callback` function.
+    def log_callback(output, execution_time, **kwargs):
+        '''My custom `log_callback` function
+
+        Parameters
+        output : tuple[np.ndarray | pd.DataFrame, estimator | transformer]
+            The output of the step and a step in the pipeline.
+        execution_time : float
+            The execution time of the step.
+
+        Note
+        The **kwargs are for arguments that are not used in this callback.
+        '''
+        logger = logging.getLogger(__name__)
+        step_result, step = output
+        logger.info(
+            f"[{step}] shape={step_result.shape} "
+            f"nbytes={step_result.nbytes} time={int(execution_time)}s")
+
+    pipe.log_callback = log_callback
+
+    _ = pipe.fit(X, y=y)
+    # [log_callback:20] - [Adder(value=1)] shape=(3, 5) nbytes=120 time=0s
+    # [log_callback:20] - [Adder(value=10)] shape=(3, 5) nbytes=120 time=0s
+    # [log_callback:20] - [Adder(value=100)] shape=(3, 5) nbytes=120 time=0s
+
+    print(pipe.transform(X))
+    # [[1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]]
+
+    # Remove the `log_callback` when you want to stop logging.
+    pipe.log_callback = None
+
+    _ = pipe.fit(X, y=y)
+    print(pipe.transform(X))
+    # [[1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]
+    #  [1111. 1111. 1111. 1111. 1111.]]
+
+    # Logging also works with FeatureUnion
+    from sklearn.pipeline import FeatureUnion
+    pipe_w_default_log_callback = DebugPipeline(steps, log_callback="default")
+    pipe_w_custom_log_callback = DebugPipeline(steps, log_callback=log_callback)
+
+    pipe_union = DebugPipeline([
+        ("feature_union", FeatureUnion([
+            ("pipe_w_default_log_callback", pipe_w_default_log_callback),
+            ("pipe_w_custom_log_callback", pipe_w_custom_log_callback),
+        ])),
+        ("final_adder", Adder(10000))
+    ], log_callback="default")
+
+    _ = pipe_union.fit(X, y=y)   # doctest:+ELLIPSIS
+    # [default_log_callback:34] - [Adder(value=1)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=10)] shape=(3, 5) time=0s
+    # [default_log_callback:34] - [Adder(value=100)] shape=(3, 5) time=0s
+    # [log_callback:20] - [Adder(value=1)] shape=(3, 5) nbytes=120 time=0s
+    # [log_callback:20] - [Adder(value=10)] shape=(3, 5) nbytes=120 time=0s
+    # [log_callback:20] - [Adder(value=100)] shape=(3, 5) nbytes=120 time=0s
+    # [default_log_callback:34] - [FeatureUnion(...)] shape=(3, 10) time=0s
+
+    print(pipe_union.transform(X))
+    # [[11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111.]
+    #  [11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111.]
+    #  [11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111. 11111.]]
+    ```
+    """
+
+    def __init__(self, steps, memory=None, verbose=False, *, log_callback=None):
+        self.log_callback = log_callback
+        super().__init__(steps=steps, memory=memory, verbose=verbose)
+
+    @property
+    def memory(self):
+        # When no log callback function is given, change nothing.
+        # Or, if the memory cache was changed, set it back to its original.
+        if self._log_callback is None:
+            if hasattr(self._memory, "_cache"):
+                self._memory.cache = self._memory._cache
+            return self._memory
+
+        self._memory = check_memory(self._memory)
+
+        # Overwrite cache function of memory such that it logs the
+        # output when the function is called
+        if not hasattr(self._memory, "_cache"):
+            self._memory._cache = self._memory.cache
+        self._memory.cache = _cache_with_function_log_statement(self._log_callback).__get__(
+            self._memory, self._memory.__class__
+        )
+        return self._memory
+
+    @memory.setter
+    def memory(self, memory):
+        self._memory = memory
+
+    @property
+    def log_callback(self):
+        return self._log_callback
+
+    @log_callback.setter
+    def log_callback(self, func):
+        self._log_callback = func
+        if self._log_callback == "default":
+            self._log_callback = default_log_callback
+

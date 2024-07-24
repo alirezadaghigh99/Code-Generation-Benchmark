@@ -74,3 +74,48 @@ def match_fginn(
     good_mask = matches_idxs[:, 0] == idxs_in_1_mut[matches_idxs[:, 1]]
     return match_dists[good_mask], matches_idxs[good_mask]
 
+class DescriptorMatcher(Module):
+    """Module version of matching functions.
+
+    See :func:`~kornia.feature.match_nn`, :func:`~kornia.feature.match_snn`,
+        :func:`~kornia.feature.match_mnn` or :func:`~kornia.feature.match_smnn` for more details.
+
+    Args:
+        match_mode: type of matching, can be `nn`, `snn`, `mnn`, `smnn`.
+        th: threshold on distance ratio, or other quality measure.
+    """
+
+    def __init__(self, match_mode: str = "snn", th: float = 0.8) -> None:
+        super().__init__()
+        _match_mode: str = match_mode.lower()
+        self.known_modes = ["nn", "mnn", "snn", "smnn"]
+        if _match_mode not in self.known_modes:
+            raise NotImplementedError(f"{match_mode} is not supported. Try one of {self.known_modes}")
+        self.match_mode = _match_mode
+        self.th = th
+
+    def forward(self, desc1: Tensor, desc2: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Args:
+            desc1: Batch of descriptors of a shape :math:`(B1, D)`.
+            desc2: Batch of descriptors of a shape :math:`(B2, D)`.
+            lafs1: LAFs of a shape :math:`(1, B1, 2, 3)`.
+            lafs2: LAFs of a shape :math:`(1, B2, 2, 3)`.
+
+        Return:
+            - Descriptor distance of matching descriptors, shape of :math:`(B3, 1)`.
+            - Long tensor indexes of matching descriptors in desc1 and desc2,
+                shape of :math:`(B3, 2)` where :math:`0 <= B3 <= B1`.
+        """
+        if self.match_mode == "nn":
+            out = match_nn(desc1, desc2)
+        elif self.match_mode == "mnn":
+            out = match_mnn(desc1, desc2)
+        elif self.match_mode == "snn":
+            out = match_snn(desc1, desc2, self.th)
+        elif self.match_mode == "smnn":
+            out = match_smnn(desc1, desc2, self.th)
+        else:
+            raise NotImplementedError
+        return out
+

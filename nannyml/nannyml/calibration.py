@@ -117,3 +117,33 @@ def create(cls, key: str = 'isotonic', **kwargs):
 
         return calibrator_class(**kwargs)
 
+class IsotonicCalibrator(Calibrator):
+    """Calibrates using IsotonicRegression model."""
+
+    def __init__(self):
+        """Creates a new IsotonicCalibrator."""
+        regressor = IsotonicRegression(out_of_bounds="clip", increasing=True)
+        self._regressor = regressor
+
+    def fit(self, y_pred_proba: np.ndarray, y_true: np.ndarray, *args, **kwargs):
+        """Fits the calibrator using a reference data set.
+
+        Parameters
+        ----------
+        y_pred_proba: numpy.ndarray
+            Vector of continuous reference scores/probabilities. Has to be the same shape as y_true.
+        y_true : numpy.ndarray
+            Vector with reference binary targets - 0 or 1. Shape (n,).
+        """
+        self._regressor.fit(y_pred_proba, y_true)
+
+    def calibrate(self, y_pred_proba: np.ndarray, *args, **kwargs):
+        """Perform calibration of prediction scores.
+
+        Parameters
+        ----------
+        y_pred_proba: numpy.ndarray
+            Vector of continuous scores/probabilities. Has to be the same shape as ``y_true``.
+        """
+        return self._regressor.predict(y_pred_proba)
+

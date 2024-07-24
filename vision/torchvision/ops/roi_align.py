@@ -55,3 +55,36 @@ def roi_align(
         input, rois, spatial_scale, output_size[0], output_size[1], sampling_ratio, aligned
     )
 
+class RoIAlign(nn.Module):
+    """
+    See :func:`roi_align`.
+    """
+
+    def __init__(
+        self,
+        output_size: BroadcastingList2[int],
+        spatial_scale: float,
+        sampling_ratio: int,
+        aligned: bool = False,
+    ):
+        super().__init__()
+        _log_api_usage_once(self)
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+        self.aligned = aligned
+
+    def forward(self, input: Tensor, rois: Union[Tensor, List[Tensor]]) -> Tensor:
+        return roi_align(input, rois, self.output_size, self.spatial_scale, self.sampling_ratio, self.aligned)
+
+    def __repr__(self) -> str:
+        s = (
+            f"{self.__class__.__name__}("
+            f"output_size={self.output_size}"
+            f", spatial_scale={self.spatial_scale}"
+            f", sampling_ratio={self.sampling_ratio}"
+            f", aligned={self.aligned}"
+            f")"
+        )
+        return s
+

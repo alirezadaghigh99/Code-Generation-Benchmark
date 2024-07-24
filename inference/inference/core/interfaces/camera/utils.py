@@ -186,3 +186,24 @@ def _find_free_source_identifier(videos: List[Union[VideoSource, str, int]]) -> 
     minimal_free_source_id += 1
     return minimal_free_source_id
 
+class RateLimiter:
+    """
+    Implements rate upper-bound rate limiting by ensuring estimate_next_tick_delay()
+    to be at min 1 / desired_fps, not letting the client obeying outcomes to exceed
+    assumed rate.
+    """
+
+    def __init__(self, desired_fps: Union[float, int]):
+        self._desired_fps = max(desired_fps, MINIMAL_FPS)
+        self._last_tick: Optional[float] = None
+
+    def tick(self) -> None:
+        self._last_tick = time.monotonic()
+
+    def estimate_next_action_delay(self) -> float:
+        if self._last_tick is None:
+            return 0.0
+        desired_delay = 1 / self._desired_fps
+        time_since_last_tick = time.monotonic() - self._last_tick
+        return max(desired_delay - time_since_last_tick, 0.0)
+

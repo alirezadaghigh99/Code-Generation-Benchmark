@@ -138,3 +138,74 @@ def num_parameters(module: nn.Module, requires_grad: Optional[bool] = None) -> i
                 total += p.numel()
     return total
 
+class incremental_save:
+    def __init__(self, name):
+        self.name = name
+        self.zipfile = torch._C.PyTorchFileWriter(str(name))
+        self.has_saved = False
+        self.next_key = 0
+
+    def __enter__(self):
+        return self
+
+    def store_early(self, tensor):
+        if isinstance(tensor, torch.Tensor):
+            return SavingProxyForTensor(tensor, self)
+        raise TypeError(f"can only store tensors early, not {type(tensor)}")
+
+    def save(self, obj):
+        if self.has_saved:
+            raise RuntimeError("have already saved")
+        # Write the pickle data for `obj`
+        data_buf = BytesIO()
+        pickler = IncrementalPyTorchPickler(self, data_buf, protocol=5)
+        pickler.dump(obj)
+        data_value = data_buf.getvalue()
+        self.zipfile.write_record("data.pkl", data_value, len(data_value))
+        self.has_saved = True
+
+    def _write_storage_and_return_key(self, storage):
+        if self.has_saved:
+            raise RuntimeError("have already saved")
+        key = self.next_key
+        self.next_key += 1
+        name = f"data/{key}"
+        if storage.device.type != "cpu":
+            storage = storage.cpu()
+        num_bytes = storage.nbytes()
+        self.zipfile.write_record(name, storage.data_ptr(), num_bytes)
+        return key
+
+    def __exit__(self, type, value, traceback):
+        self.zipfile.write_end_of_file()
+
+class CycleIterator:
+    """An iterator that cycles through an iterable indefinitely.
+
+    Example:
+        >>> iterator = CycleIterator([1, 2, 3])
+        >>> [next(iterator) for _ in range(5)]
+        [1, 2, 3, 1, 2]
+
+    Note:
+        Unlike ``itertools.cycle``, this iterator does not cache the values of the iterable.
+    """
+
+    def __init__(self, iterable: Iterable) -> None:
+        self.iterable = iterable
+        self.epoch = 0
+        self._iterator = None
+
+    def __next__(self) -> Any:
+        if self._iterator is None:
+            self._iterator = iter(self.iterable)
+        try:
+            return next(self._iterator)
+        except StopIteration:
+            self._iterator = iter(self.iterable)
+            self.epoch += 1
+            return next(self._iterator)
+
+    def __iter__(self) -> Self:
+        return self
+

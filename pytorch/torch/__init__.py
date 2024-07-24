@@ -148,3 +148,43 @@ def set_float32_matmul_precision(precision: str) -> None:
     """
     _C._set_float32_matmul_precision(precision)
 
+class FloatStorage(_LegacyStorage):
+    @classproperty
+    def dtype(self):
+        _warn_typed_storage_removal(stacklevel=3)
+        return self._dtype
+
+    @classproperty
+    def _dtype(self):
+        return torch.float
+
+class IntStorage(_LegacyStorage):
+    @classproperty
+    def dtype(self):
+        _warn_typed_storage_removal(stacklevel=3)
+        return self._dtype
+
+    @classproperty
+    def _dtype(self):
+        return torch.int
+
+class ComplexFloatStorage(_LegacyStorage):
+    @classproperty
+    def dtype(self):
+        _warn_typed_storage_removal(stacklevel=3)
+        return self._dtype
+
+    @classproperty
+    def _dtype(self):
+        return torch.cfloat
+
+class DoubleStorage(_LegacyStorage):
+    @classproperty
+    def dtype(self):
+        _warn_typed_storage_removal(stacklevel=3)
+        return self._dtype
+
+    @classproperty
+    def _dtype(self):
+        return torch.double
+

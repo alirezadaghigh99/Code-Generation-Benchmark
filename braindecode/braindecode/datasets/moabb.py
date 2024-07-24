@@ -32,3 +32,69 @@ def _find_dataset_in_moabb(dataset_name, dataset_kwargs=None):
                 return dataset(**dataset_kwargs)
     raise ValueError(f"{dataset_name} not found in moabb datasets")
 
+class MOABBDataset(BaseConcatDataset):
+    """A class for moabb datasets.
+
+    Parameters
+    ----------
+    dataset_name: str
+        name of dataset included in moabb to be fetched
+    subject_ids: list(int) | int | None
+        (list of) int of subject(s) to be fetched. If None, data of all
+        subjects is fetched.
+    dataset_kwargs: dict, optional
+        optional dictionary containing keyword arguments
+        to pass to the moabb dataset when instantiating it.
+    dataset_load_kwargs: dict, optional
+        optional dictionary containing keyword arguments
+        to pass to the moabb dataset's load_data method.
+        Allows using the moabb cache_config=None and
+        process_pipeline=None.
+    """
+
+    def __init__(
+        self,
+        dataset_name: str,
+        subject_ids: list[int] | int | None = None,
+        dataset_kwargs: dict[str, Any] | None = None,
+        dataset_load_kwargs: dict[str, Any] | None = None,
+    ):
+        # soft dependency on moabb
+        from moabb import __version__ as moabb_version
+
+        if moabb_version == "1.0.0":
+            warnings.warn(
+                "moabb version 1.0.0 generates incorrect annotations. "
+                "Please update to another version, version 0.5 or 1.0.1 "
+            )
+
+        raws, description = fetch_data_with_moabb(
+            dataset_name,
+            subject_ids,
+            dataset_kwargs,
+            dataset_load_kwargs=dataset_load_kwargs,
+        )
+        all_base_ds = [
+            BaseDataset(raw, row) for raw, (_, row) in zip(raws, description.iterrows())
+        ]
+        super().__init__(all_base_ds)
+
+class BNCI2014001(MOABBDataset):
+    doc = """See moabb.datasets.bnci.BNCI2014001
+
+    Parameters
+    ----------
+    subject_ids: list(int) | int | None
+        (list of) int of subject(s) to be fetched. If None, data of all
+        subjects is fetched.
+    """
+    try:
+        from moabb.datasets import BNCI2014001
+
+        __doc__ = _update_moabb_docstring(BNCI2014001, doc)
+    except ModuleNotFoundError:
+        pass  # keep moabb soft dependency, otherwise crash on loading of datasets.__init__.py
+
+    def __init__(self, subject_ids):
+        super().__init__("BNCI2014001", subject_ids=subject_ids)
+

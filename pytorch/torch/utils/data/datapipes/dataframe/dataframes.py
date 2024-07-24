@@ -1,0 +1,3 @@
+class CaptureDataFrame(CaptureInitial):
+    pass
+

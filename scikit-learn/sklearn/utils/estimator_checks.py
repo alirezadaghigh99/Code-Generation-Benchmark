@@ -37,3 +37,23 @@ def check_class_weight_balanced_linear_classifier(name, Classifier):
         err_msg="Classifier %s is not computing class_weight=balanced properly." % name,
     )
 
+class _NotAnArray:
+    """An object that is convertible to an array.
+
+    Parameters
+    ----------
+    data : array-like
+        The data.
+    """
+
+    def __init__(self, data):
+        self.data = np.asarray(data)
+
+    def __array__(self, dtype=None, copy=None):
+        return self.data
+
+    def __array_function__(self, func, types, args, kwargs):
+        if func.__name__ == "may_share_memory":
+            return True
+        raise TypeError("Don't want to call array_function {}!".format(func.__name__))
+

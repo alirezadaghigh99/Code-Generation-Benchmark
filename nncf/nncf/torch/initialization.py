@@ -74,3 +74,34 @@ def register_default_init_args(
     nncf_config.register_extra_structs([DistributedCallbacksArgs(*distributed_callbacks)])
     return nncf_config
 
+class PartialDataLoader:
+    def __init__(self, regular_data_loader: DataLoader, iter_ratio=1.0):
+        if iter_ratio < 0.0 or iter_ratio > 1.0:
+            raise ValueError("iter_ratio must be within 0 to 1 range")
+        self.data_loader = regular_data_loader
+        self.batch_size = regular_data_loader.batch_size
+        self._stop_id = math.ceil(len(self.data_loader) * iter_ratio)
+        self._batch_id = 0
+
+    def __iter__(self):
+        self.data_loader_iter = iter(self.data_loader)
+        self._batch_id = 0
+        return self
+
+    def __next__(self) -> Any:
+        if self._batch_id < self._stop_id:
+            loaded_item = next(self.data_loader_iter)
+            self._batch_id += 1
+            return loaded_item
+        raise StopIteration
+
+    def __len__(self) -> int:
+        return self._stop_id
+
+class DefaultInitializingDataLoader(PTInitializingDataLoader):
+    def get_inputs(self, dataloader_output: Any) -> Tuple[Tuple, Dict]:
+        return (dataloader_output[0],), {}
+
+    def get_target(self, dataloader_output: Any):
+        return dataloader_output[1]
+

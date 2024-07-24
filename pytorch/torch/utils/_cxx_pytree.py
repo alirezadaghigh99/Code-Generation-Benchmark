@@ -45,3 +45,7 @@ def tree_flatten(
         namespace="torch",
     )
 
+class LeafSpec(TreeSpec, metaclass=LeafSpecMeta):
+    def __new__(cls) -> "LeafSpec":
+        return optree.treespec_leaf(none_is_leaf=True)  # type: ignore[return-value]
+

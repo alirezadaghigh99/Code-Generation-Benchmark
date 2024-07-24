@@ -167,3 +167,22 @@ def default_stream(device: Optional[_device_t] = None) -> Stream:
         stream_id=streamdata[0], device_index=streamdata[1], device_type=streamdata[2]
     )
 
+class device:
+    r"""Context-manager that changes the selected device.
+
+    Args:
+        device (torch.device or int): device index to select. It's a no-op if
+            this argument is a negative integer or ``None``.
+    """
+
+    def __init__(self, device: Any):
+        self.idx = _get_device_index(device, optional=True)
+        self.prev_idx = -1
+
+    def __enter__(self):
+        self.prev_idx = torch.cuda._exchange_device(self.idx)
+
+    def __exit__(self, type: Any, value: Any, traceback: Any):
+        self.idx = torch.cuda._maybe_exchange_device(self.prev_idx)
+        return False
+

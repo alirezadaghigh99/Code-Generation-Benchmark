@@ -21,3 +21,13 @@ def jacobians_naive(model, data):
     Jacs = torch.stack(Jacs).transpose(1, 2)
     return Jacs.detach(), f.detach()
 
+class ListDataset(Dataset):
+    def __init__(self, data: List[Any]):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+

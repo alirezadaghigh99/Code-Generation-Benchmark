@@ -1,0 +1,58 @@
+class QuadratureProductMatern32LebesgueMeasure(QuadratureProductMatern32, LebesgueEmbedding):
+    """A product Matern32 kernel augmented with integrability w.r.t. the standard Lebesgue measure.
+
+    .. seealso::
+       * :class:`emukit.quadrature.interfaces.IProductMatern32`
+       * :class:`emukit.quadrature.kernels.QuadratureProductMatern32`
+       * :class:`emukit.quadrature.measures.LebesgueMeasure`
+
+    :param matern_kernel: The standard EmuKit product Matern32 kernel.
+    :param measure: The Lebesgue measure.
+    :param variable_names: The (variable) name(s) of the integral.
+
+    """
+
+    def __init__(self, matern_kernel: IProductMatern32, measure: LebesgueMeasure, variable_names: str = "") -> None:
+        super().__init__(matern_kernel=matern_kernel, measure=measure, variable_names=variable_names)
+
+    def _scale(self, z: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        return self.variance * z
+
+    def _get_univariate_parameters(self, dim: int) -> dict:
+        return {
+            "domain": self.measure.domain.bounds[dim],
+            "lengthscale": self.lengthscales[dim],
+            "normalize": self.measure.is_normalized,
+        }
+
+    def _qK_1d(self, x: np.ndarray, **parameters) -> np.ndarray:
+        a, b = parameters["domain"]
+        lengthscale = parameters["lengthscale"]
+        normalization = 1 / (b - a) if parameters["normalize"] else 1.0
+        s3 = np.sqrt(3.0)
+        first_term = 4.0 * lengthscale / s3
+        second_term = -np.exp(s3 * (x - b) / lengthscale) * (b + 2.0 * lengthscale / s3 - x)
+        third_term = -np.exp(s3 * (a - x) / lengthscale) * (x + 2.0 * lengthscale / s3 - a)
+        return (first_term + second_term + third_term) * normalization
+
+    def _qKq_1d(self, **parameters) -> float:
+        a, b = parameters["domain"]
+        lengthscale = parameters["lengthscale"]
+        normalization = 1 / (b - a) if parameters["normalize"] else 1.0
+        c = np.sqrt(3.0) * (b - a)
+        qKq = (
+            2.0 * lengthscale / 3.0 * (2.0 * c - 3.0 * lengthscale + np.exp(-c / lengthscale) * (c + 3.0 * lengthscale))
+        )
+        return float(qKq) * normalization**2
+
+    def _dqK_dx_1d(self, x: np.ndarray, **parameters) -> np.ndarray:
+        a, b = parameters["domain"]
+        lengthscale = parameters["lengthscale"]
+        normalization = 1 / (b - a) if parameters["normalize"] else 1.0
+        s3 = np.sqrt(3)
+        exp_term_b = np.exp(s3 * (x - b) / lengthscale)
+        exp_term_a = np.exp(s3 * (a - x) / lengthscale)
+        first_term = exp_term_b * (-1 + (s3 / lengthscale) * (x - b))
+        second_term = exp_term_a * (+1 - (s3 / lengthscale) * (a - x))
+        return (first_term + second_term) * normalization
+

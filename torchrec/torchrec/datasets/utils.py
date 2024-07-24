@@ -44,3 +44,46 @@ def idx_split_train_val(
         _IdxFilter(datapipe, partial(val_filter, key_fn, train_perc, decimal_places)),
     )
 
+class ParallelReadConcat(IterDataPipe):
+    r""":class:`ParallelReadConcat`.
+
+    Iterable DataPipe that concatenates multiple Iterable DataPipes.
+    When used with a DataLoader, assigns a subset of datapipes to each DataLoader worker
+    to allow for parallel reading.
+    Args:
+        datapipes: IterDataPipe instances to read from.
+        dp_selector: function that each DataLoader worker would use to determine the subset of datapipes
+        to read from.
+    Example::
+
+        datapipes = [
+            criteo_terabyte(
+                (f"/home/local/datasets/criteo/shard_{idx}.tsv",),
+            )
+            .batch(100)
+            .collate()
+            for idx in range(4)
+        ]
+        dataloader = DataLoader(
+            ParallelReadConcat(*datapipes), num_workers=4, batch_size=None
+        )
+    """
+
+    def __init__(
+        self,
+        *datapipes: IterDataPipe,
+        dp_selector: Callable[
+            [Sequence[IterDataPipe]], Sequence[IterDataPipe]
+        ] = _default_dp_selector,
+    ) -> None:
+        super().__init__()
+        self.datapipes: Tuple[IterDataPipe, ...] = datapipes
+        self.dp_selector = dp_selector
+
+    # pyre-ignore[3]
+    def __iter__(self) -> Iterator[Any]:
+        selected_dps = self.dp_selector(self.datapipes)
+        for dp in selected_dps:
+            for data in dp:
+                yield data
+

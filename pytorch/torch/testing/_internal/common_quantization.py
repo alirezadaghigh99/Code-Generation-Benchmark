@@ -32,3 +32,27 @@ def _dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
 
     return quant, scales.to(x_dtype), zero_points
 
+class LSTMwithHiddenDynamicModel(torch.nn.Module):
+    def __init__(self, qengine='fbgemm'):
+        super().__init__()
+        self.qconfig = torch.ao.quantization.get_default_qconfig(qengine)
+        self.lstm = torch.nn.LSTM(2, 2).to(dtype=torch.float)
+
+    def forward(self, x, hid):
+        x, hid = self.lstm(x, hid)
+        return x, hid
+
+class TwoLayerLinearModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = torch.nn.Linear(5, 8).to(dtype=torch.float)
+        self.fc2 = torch.nn.Linear(8, 5).to(dtype=torch.float)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+
+    def get_example_inputs(self) -> Tuple[Any, ...]:
+        return (torch.rand(1, 5),)
+

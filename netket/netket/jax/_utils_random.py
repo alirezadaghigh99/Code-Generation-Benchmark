@@ -31,3 +31,33 @@ def PRNGKey(
         )
     return key
 
+class PRNGSeq:
+    """
+    A sequence of PRNG keys generated based on an initial key.
+    """
+
+    def __init__(self, base_key: Optional[SeedT] = None):
+        if base_key is None:
+            base_key = PRNGKey()
+        elif isinstance(base_key, int):
+            base_key = PRNGKey(base_key)
+        self._current = base_key
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._current = jax.random.split(self._current, num=1)[0]
+        return self._current
+
+    def next(self):
+        return self.__next__()
+
+    def take(self, num: int):
+        """
+        Returns an array of `num` PRNG keys and advances the iterator accordingly.
+        """
+        keys = jax.random.split(self._current, num=num + 1)
+        self._current = keys[-1]
+        return keys[:-1]
+

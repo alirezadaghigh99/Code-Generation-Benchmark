@@ -18,3 +18,52 @@ def _adapted_cohen_kappa_score(y1, y2, *, labels=None, weights=None, sample_weig
             sample_weight=sample_weight
         )
 
+class KappaAverage(StoppingCriterion):
+    """A stopping criterion which measures the agreement between sets of predictions [BV09]_.
+
+    .. versionchanged:: 1.3.3
+       The previous implementation, which was flawed, has been corrected.
+
+    """
+    def __init__(self, num_classes, window_size=3, kappa=0.99):
+        """
+        num_classes : int
+            Number of classes.
+        window_size : int, default=3
+            Defines number of iterations for which the predictions are taken into account, i.e.
+            this stopping criterion only sees the last `window_size`-many states of the prediction
+            array passed to `stop()`.
+        kappa : float, default=0.99
+            The criterion stops when the agreement between two consecutive predictions within
+            the window falls below this threshold.
+        """
+        self.num_classes = num_classes
+        self.window_size = window_size
+        self.kappa = kappa
+
+        self.last_predictions = None
+        self.kappa_history = []
+
+    def stop(self, active_learner=None, predictions=None, proba=None, indices_stopping=None):
+        check_window_based_predictions(predictions, self.last_predictions)
+
+        if self.last_predictions is None:
+            self.last_predictions = predictions
+            return False
+        else:
+            labels = np.arange(self.num_classes)
+            cohens_kappa = _adapted_cohen_kappa_score(predictions, self.last_predictions, labels=labels)
+
+            self.kappa_history.append(cohens_kappa)
+            self.last_predictions = predictions
+
+            if len(self.kappa_history) < self.window_size:
+                return False
+
+            self.kappa_history = self.kappa_history[-self.window_size:]
+
+            if np.mean(self.kappa_history) >= self.kappa:
+                return True
+            else:
+                return False
+

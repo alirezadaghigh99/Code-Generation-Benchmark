@@ -26,3 +26,43 @@ def inference_on_dataset(
         results = {}
     return results
 
+class ResultCache(object):
+    def __init__(self, cache_dir: str):
+        """A utility class to handle save/load cache data across processes"""
+        self.cache_str = cache_dir
+
+    @property
+    def cache_file(self):
+        if self.cache_str is None:
+            return None
+        return os.path.join(self.cache_str, f"_result_cache_.{comm.get_rank()}.pkl")
+
+    def has_cache(self):
+        return PathManager.isfile(self.cache_file)
+
+    def load(self, gather: bool = False):
+        """
+        Load cache results.
+        gather (bool): gather cache results arcoss ranks to a list
+        """
+        if self.cache_file is None or not PathManager.exists(self.cache_file):
+            ret = None
+        else:
+            with PathManager.open(self.cache_file, "rb") as fp:
+                ret = torch.load(fp)
+            logger.info(f"Loaded from checkpoint {self.cache_file}")
+
+        if gather:
+            ret = comm.all_gather(ret)
+
+        return ret
+
+    def save(self, data: Any):
+        if self.cache_file is None:
+            return
+
+        PathManager.mkdirs(os.path.dirname(self.cache_file))
+        with PathManager.open(self.cache_file, "wb") as fp:
+            torch.save(data, fp)
+        logger.info(f"Saved checkpoint to {self.cache_file}")
+

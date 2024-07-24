@@ -147,3 +147,111 @@ def from_coco_dict_or_path(
             coco = coco.get_coco_with_clipped_bboxes()
         return coco
 
+class CocoVidAnnotation(CocoAnnotation):
+    """
+    COCOVid formatted annotation.
+    https://github.com/open-mmlab/mmtracking/blob/master/docs/tutorials/customize_dataset.md#the-cocovid-annotation-file
+    """
+
+    def __init__(
+        self,
+        bbox=None,
+        category_id=None,
+        category_name=None,
+        image_id=None,
+        instance_id=None,
+        iscrowd=0,
+        id=None,
+    ):
+        """
+        Args:
+            bbox: List
+                [xmin, ymin, width, height]
+            category_id: int
+                Category id of the annotation
+            category_name: str
+                Category name of the annotation
+            image_id: int
+                Image ID of the annotation
+            instance_id: int
+                Used for tracking
+            iscrowd: int
+                0 or 1
+            id: int
+                Annotation id
+        """
+        super(CocoVidAnnotation, self).__init__(
+            bbox=bbox,
+            category_id=category_id,
+            category_name=category_name,
+            image_id=image_id,
+            iscrowd=iscrowd,
+        )
+        self.instance_id = instance_id
+        self.id = id
+
+    @property
+    def json(self):
+        return {
+            "id": self.id,
+            "image_id": self.image_id,
+            "bbox": self.bbox,
+            "segmentation": self.segmentation,
+            "category_id": self.category_id,
+            "category_name": self.category_name,
+            "instance_id": self.instance_id,
+            "iscrowd": self.iscrowd,
+            "area": self.area,
+        }
+
+    def __repr__(self):
+        return f"""CocoAnnotation<
+    id: {self.id},
+    image_id: {self.image_id},
+    bbox: {self.bbox},
+    segmentation: {self.segmentation},
+    category_id: {self.category_id},
+    category_name: {self.category_name},
+    instance_id: {self.instance_id},
+    iscrowd: {self.iscrowd},
+    area: {self.area}>"""
+
+class CocoCategory:
+    """
+    COCO formatted category.
+    """
+
+    def __init__(self, id=None, name=None, supercategory=None):
+        self.id = int(id)
+        self.name = name
+        self.supercategory = supercategory if supercategory else name
+
+    @classmethod
+    def from_coco_category(cls, category):
+        """
+        Creates CocoCategory object using coco category.
+
+        Args:
+            category: Dict
+                {"supercategory": "person", "id": 1, "name": "person"},
+        """
+        return cls(
+            id=category["id"],
+            name=category["name"],
+            supercategory=category["supercategory"] if "supercategory" in category else category["name"],
+        )
+
+    @property
+    def json(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "supercategory": self.supercategory,
+        }
+
+    def __repr__(self):
+        return f"""CocoCategory<
+    id: {self.id},
+    name: {self.name},
+    supercategory: {self.supercategory}>"""
+

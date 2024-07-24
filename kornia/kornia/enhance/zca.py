@@ -95,3 +95,152 @@ def zca_mean(
 
     return T, mean, T_inv
 
+class ZCAWhitening(Module):
+    r"""Compute the ZCA whitening matrix transform and the mean vector and applies the transform to the data.
+
+    The data tensor is flattened, and the mean :math:`\mathbf{\mu}`
+    and covariance matrix :math:`\mathbf{\Sigma}` are computed from
+    the flattened data :math:`\mathbf{X} \in \mathbb{R}^{N \times D}`, where
+    :math:`N` is the sample size and :math:`D` is flattened dimensionality
+    (e.g. for a tensor with size 5x3x2x2 :math:`N = 5` and :math:`D = 12`). The ZCA whitening
+    transform is given by:
+
+    .. math::
+
+        \mathbf{X}_{\text{zca}} = (\mathbf{X - \mu})(US^{-\frac{1}{2}}U^T)^T
+
+    where :math:`U` are the eigenvectors of :math:`\Sigma` and :math:`S` contain the corresponding
+    eigenvalues of :math:`\Sigma`. After the transform is applied, the output is reshaped to same shape.
+
+    args:
+
+        dim: Determines the dimension that represents the samples axis.
+        eps: a small number used for numerical stability.
+        unbiased: Whether to use the biased estimate of the covariance matrix.
+        compute_inv: Compute the inverse transform matrix.
+        detach_transforms: Detaches gradient from the ZCA fitting.
+
+    shape:
+        - x: :math:`(D_0,...,D_{\text{dim}},...,D_N)` is a batch of N-D tensors.
+        - x_whiten: :math:`(D_0,...,D_{\text{dim}},...,D_N)` same shape as input.
+
+    .. note::
+       See a working example `here <https://colab.sandbox.google.com/github/kornia/tutorials/
+       blob/master/source/zca_whitening.ipynb>`__.
+
+    Examples:
+        >>> x = torch.tensor([[0,1],[1,0],[-1,0],[0,-1]], dtype = torch.float32)
+        >>> zca = ZCAWhitening().fit(x)
+        >>> x_whiten = zca(x)
+        >>> zca = ZCAWhitening()
+        >>> x_whiten = zca(x, include_fit = True) # Includes the fitting step
+        >>> x_whiten = zca(x) # Can run now without the fitting set
+        >>> # Enable backprop through ZCA fitting process
+        >>> zca = ZCAWhitening(detach_transforms = False)
+        >>> x_whiten = zca(x, include_fit = True) # Includes the fitting step
+
+    Note:
+
+        This implementation uses :py:meth:`~torch.svd` which yields NaNs in the backwards step
+        if the singular values are not unique. See `here <https://pytorch.org/docs/stable/torch.html#torch.svd>`_ for
+        more information.
+
+    References:
+
+        [1] `Stanford PCA & ZCA whitening tutorial <http://ufldl.stanford.edu/tutorial/unsupervised/PCAWhitening/>`_
+    """
+
+    def __init__(
+        self,
+        dim: int = 0,
+        eps: float = 1e-6,
+        unbiased: bool = True,
+        detach_transforms: bool = True,
+        compute_inv: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.dim = dim
+        self.eps = eps
+        self.unbiased = unbiased
+        self.detach_transforms = detach_transforms
+        self.compute_inv = compute_inv
+
+        self.fitted = False
+
+        self.mean_vector: Tensor
+        self.transform_matrix: Tensor
+        self.transform_inv: Optional[Tensor]
+
+    def fit(self, x: Tensor) -> "ZCAWhitening":
+        r"""Fit ZCA whitening matrices to the data.
+
+        Args:
+
+            x: Input data.
+
+        returns:
+            Returns a fitted ZCAWhiten object instance.
+        """
+        T, mean, T_inv = zca_mean(x, self.dim, self.unbiased, self.eps, self.compute_inv)
+
+        self.mean_vector = mean
+        self.transform_matrix = T
+        if T_inv is None:
+            self.transform_inv = torch.empty([0])
+        else:
+            self.transform_inv = T_inv
+
+        if self.detach_transforms:
+            self.mean_vector = self.mean_vector.detach()
+            self.transform_matrix = self.transform_matrix.detach()
+            self.transform_inv = self.transform_inv.detach()
+
+        self.fitted = True
+
+        return self
+
+    def forward(self, x: Tensor, include_fit: bool = False) -> Tensor:
+        r"""Apply the whitening transform to the data.
+
+        Args:
+            x: Input data.
+            include_fit: Indicates whether to fit the data as part of the forward pass.
+
+        Returns:
+            The transformed data.
+        """
+        if include_fit:
+            self.fit(x)
+
+        if not self.fitted:
+            raise RuntimeError("Needs to be fitted first before running. Please call fit or set include_fit to True.")
+
+        x_whiten = linear_transform(x, self.transform_matrix, self.mean_vector, self.dim)
+
+        return x_whiten
+
+    def inverse_transform(self, x: Tensor) -> Tensor:
+        r"""Apply the inverse transform to the whitened data.
+
+        Args:
+            x: Whitened data.
+
+        Returns:
+            Original data.
+        """
+        if not self.fitted:
+            raise RuntimeError("Needs to be fitted first before running. Please call fit or set include_fit to True.")
+
+        if not self.compute_inv:
+            raise RuntimeError("Did not compute inverse ZCA. Please set compute_inv to True")
+
+        if self.transform_inv is None:
+            raise TypeError("The transform inverse should be a Tensor. Gotcha None.")
+
+        mean_inv: Tensor = -self.mean_vector.mm(self.transform_matrix)
+
+        y = linear_transform(x, self.transform_inv, mean_inv)
+
+        return y
+

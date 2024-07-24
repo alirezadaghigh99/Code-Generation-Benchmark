@@ -107,3 +107,107 @@ def launch_agent(
         if shutdown_rdzv:
             spec.rdzv_handler.shutdown()
 
+class elastic_launch:
+    """
+    Launches an torchelastic agent on the container that invoked the entrypoint.
+
+        1. Pass the ``entrypoint`` arguments as non ``kwargs`` (e.g. no named parameters)/
+           ``entrypoint`` can be a function or a command.
+        2. The return value is a map of each worker's output mapped
+           by their respective global rank.
+
+    Usage
+
+    ::
+
+    def worker_fn(foo):
+        # ...
+
+    def main():
+        # entrypoint is a function.
+        outputs = elastic_launch(LaunchConfig, worker_fn)(foo)
+        # return rank 0's output
+        return outputs[0]
+
+        # entrypoint is a command and ``script.py`` is the python module.
+        outputs = elastic_launch(LaunchConfig, "script.py")(args)
+        outputs = elastic_launch(LaunchConfig, "python")("script.py")
+    """
+
+    def __init__(
+        self,
+        config: LaunchConfig,
+        entrypoint: Union[Callable, str, None],
+    ):
+        self._config = config
+        self._entrypoint = entrypoint
+
+    def __call__(self, *args):
+        return launch_agent(self._config, self._entrypoint, list(args))
+
+class LaunchConfig:
+    """
+    Creates a rendezvous config.
+
+    Args:
+        min_nodes: Minimum amount of nodes that the user function will
+                        be launched on. Elastic agent ensures that the user
+                        function start only when the min_nodes amount enters
+                        the rendezvous.
+        max_nodes: Maximum amount of nodes that the user function
+                        will be launched on.
+        nproc_per_node: On each node the elastic agent will launch
+                            this amount of workers that will execute user
+                            defined function.
+        rdzv_backend: rdzv_backend to use in the rendezvous (zeus-adapter, etcd).
+        rdzv_endpoint: The endpoint of the rdzv sync. storage.
+        rdzv_configs: Key, value pair that specifies rendezvous specific configuration.
+        rdzv_timeout: Legacy argument that specifies timeout for the rendezvous. It is going
+            to be removed in future versions, see the note below. The default timeout is 900 seconds.
+        run_id: The unique run id of the job (if not passed a unique one will be
+                deduced from run environment - flow workflow id in flow - or auto generated).
+        role: User defined role of the worker (defaults to "trainer").
+        max_restarts: The maximum amount of restarts that elastic agent will conduct
+                    on workers before failure.
+        monitor_interval: The interval in seconds that is used by the elastic_agent
+                        as a period of monitoring workers.
+        start_method: The method is used by the elastic agent to start the
+                    workers (spawn, fork, forkserver).
+        metrics_cfg: configuration to initialize metrics.
+        local_addr: address of the local node if any. If not set, a lookup on the local
+                machine's FQDN will be performed.
+        local_ranks_filter: ranks for which to show logs in console. If not set, show from all.
+    ..note:
+        `rdzv_timeout` is a legacy argument that will be removed in future.
+        Set the timeout via `rdzv_configs['timeout']`
+
+    """
+
+    min_nodes: int
+    max_nodes: int
+    nproc_per_node: int
+    logs_specs: Optional[LogsSpecs] = None
+    run_id: str = ""
+    role: str = "default_role"
+    rdzv_endpoint: str = ""
+    rdzv_backend: str = "etcd"
+    rdzv_configs: Dict[str, Any] = field(default_factory=dict)
+    rdzv_timeout: int = -1
+    max_restarts: int = 3
+    monitor_interval: float = 0.1
+    start_method: str = "spawn"
+    log_line_prefix_template: Optional[str] = None
+    metrics_cfg: Dict[str, str] = field(default_factory=dict)
+    local_addr: Optional[str] = None
+
+    def __post_init__(self):
+        default_timeout = 900
+        if self.rdzv_timeout != -1:
+            self.rdzv_configs["timeout"] = self.rdzv_timeout
+        elif "timeout" not in self.rdzv_configs:
+            self.rdzv_configs["timeout"] = default_timeout
+
+        # Post-processing to enable refactoring to introduce logs_specs due to non-torchrun API usage
+        if self.logs_specs is None:
+            self.logs_specs = DefaultLogsSpecs()
+

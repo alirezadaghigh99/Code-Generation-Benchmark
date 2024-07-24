@@ -96,3 +96,110 @@ def translate_native_yaml(
 
         yaml.dump(native_es, out_file, width=1000)
 
+class ComputeCodegenUnboxedKernels:
+    selector: SelectiveBuilder
+
+    use_aten_lib: bool
+
+    @method_with_nested_native_function
+    def __call__(
+        self,
+        unbox_kernel_entry: tuple[NativeFunction, tuple[ETKernelKey, BackendMetadata]],
+    ) -> str:
+        f: NativeFunction = unbox_kernel_entry[0]
+        kernel_key: ETKernelKey | list[ETKernelKey] = unbox_kernel_entry[1][0]
+        kernel_meta: BackendMetadata = unbox_kernel_entry[1][1]
+
+        op_name = f"{f.namespace}::{f.func.name}"
+        if not self.selector.is_root_operator(op_name):
+            return ""
+
+        if not isinstance(kernel_key, list):
+            kernel_key = [kernel_key]
+        used_kernel_keys = self.selector.et_get_selected_kernels(
+            op_name, [k.to_native_string() for k in kernel_key]
+        )
+        if not used_kernel_keys:
+            return ""
+        sig: CppSignature | ExecutorchCppSignature
+        argument_type_gen: Callable[..., NamedCType]
+        return_type_gen: Callable[..., CType]
+        if self.use_aten_lib:
+            sig = CppSignatureGroup.from_native_function(
+                f, method=False, fallback_binding=f.manual_cpp_binding
+            ).most_faithful_signature()
+            argument_type_gen = aten_cpp.argumenttype_type
+            return_type_gen = aten_cpp.returns_type
+            arguments = sig.arguments()
+            kernel_call = f"torch::executor::{f.namespace}::{sig.name()}"
+        else:
+            sig = ExecutorchCppSignature.from_native_function(f)
+            argument_type_gen = et_cpp.argumenttype_type
+            return_type_gen = et_cpp.returns_type
+            arguments = sig.arguments(include_context=False)
+            kernel_call = f"{kernel_meta.cpp_namespace}::{kernel_meta.kernel}"
+        # parse arguments into C++ code
+        binding_list, code_list = Unboxing(
+            argument_type_gen=argument_type_gen
+        ).convert_arguments(arguments)
+
+        # for each C++ argument, generate the conversion code
+        code_connector = "\n\t"
+        arg_connector = ", "
+
+        args_str = f"{arg_connector.join(e.name for e in binding_list)}"
+        event_tracer_output_logging = ""
+        output_ids = []
+
+        if len(f.func.returns) == 0:
+            if len(f.func.arguments.out) == 0:
+                raise Exception(  # noqa: TRY002
+                    f"Can't handle native function {f.func} with no returns and no out yet."
+                )
+            out = f.func.arguments.out[0]
+            return_assignment = f"""stack[{len(binding_list)}] = &{out.name};"""
+            ret_prefix = ""
+            output_ids = [len(binding_list)]
+        else:
+            if len(f.func.arguments.out) == 0:
+                return_assignment = (
+                    f"""*stack[{len(binding_list)}] = EValue(result_);"""
+                )
+                ret_prefix = return_type_gen(f.func.returns).cpp_type() + " result_ = "
+                output_ids = [len(binding_list)]
+            else:
+                return_assignment = ""
+                ret_prefix = ""
+                output_ids = [
+                    len(binding_list) - (i + 1)
+                    for i in reversed(range(len(f.func.arguments.out)))
+                ]
+
+        for output_id in output_ids:
+            event_tracer_output_logging += (
+                f"internal::event_tracer_log_evalue("
+                f"context.internal_event_tracer(), "
+                f"*stack[{output_id}]);\n"
+            )
+
+        newline = "\n    "
+        return "\n".join(
+            [
+                f"""
+Kernel(
+    "{f.namespace}::{f.func.name}",{newline + '"' + (k + '",') if k != 'default' else ''}
+    []({contextArg.defn()}, EValue** stack) {{
+        {code_connector.join(code_list)}
+
+        internal::EventTracerProfileScope event_tracer_scope(context.internal_event_tracer(), "native_call_{f.func.name}");
+        EXECUTORCH_SCOPE_PROF("native_call_{f.func.name}");
+        {ret_prefix}{kernel_call}(context, {args_str});
+        {event_tracer_output_logging}
+        {return_assignment}
+    }}
+),
+"""
+                for k in used_kernel_keys
+            ]
+        )
+

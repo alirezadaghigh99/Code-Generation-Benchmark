@@ -61,3 +61,84 @@ def greedy_coreset(x, indices_unlabeled, indices_labeled, n, distance_metric='co
 
     return np.array(ind_new)
 
+class GreedyCoreset(EmbeddingBasedQueryStrategy):
+    """Selects instances by constructing a greedy coreset [SS17]_ over document embeddings.
+    """
+    def __init__(self, distance_metric='euclidean', normalize=True, batch_size=100):
+        """
+        Parameters
+        ----------
+        distance_metric : {'cosine', 'euclidean'}
+             Distance metric to be used.
+
+             .. versionadded:: 1.2.0
+        normalize : bool
+            Embeddings will be normalized before the coreset construction if True.
+        batch_size : int
+            Batch size used for computing document distances.
+
+
+        .. note::
+
+           The default distance metric before v1.2.0 used to be cosine distance.
+
+        .. seealso::
+
+           Function :py:func:`.greedy_coreset`
+              Docstrings of the underlying :py:func:`greedy_coreset` method.
+        """
+        if distance_metric not in set(_DISTANCE_METRICS):
+            raise ValueError(f'Invalid distance metric: {distance_metric}. '
+                             f'Possible values: {_DISTANCE_METRICS}')
+
+        if distance_metric != 'cosine':
+            warnings.warn('Default distance metric has changed from "cosine" '
+                          'to "euclidean" in v1.2.0. This warning will disappear in '
+                          'v2.0.0.')
+
+        self.distance_metric = distance_metric
+        self.normalize = normalize
+        self.batch_size = batch_size
+
+    def sample(self, clf, dataset, indices_unlabeled, indices_labeled, y, n, embeddings,
+               embeddings_proba=None):
+        if self.normalize:
+            from sklearn.preprocessing import normalize
+            embeddings = normalize(embeddings, axis=1)
+        return greedy_coreset(embeddings, indices_unlabeled, indices_labeled, n,
+                              distance_metric=self.distance_metric, normalized=self.normalize)
+
+    def __str__(self):
+        return f'GreedyCoreset(distance_metric={self.distance_metric}, ' \
+            f'normalize={self.normalize}, batch_size={self.batch_size})'
+
+class LightweightCoreset(EmbeddingBasedQueryStrategy):
+    """Selects instances by constructing a lightweight coreset [BLK18]_ over document embeddings.
+    """
+    def __init__(self, normalize=True):
+        """
+        Parameters
+        ----------
+        normalize : bool
+            Embeddings will be normalized before the coreset construction if True.
+        """
+        self.normalize = normalize
+
+    def sample(self, clf, dataset, indices_unlabeled, _indices_labeled, _y, n, embeddings,
+               embeddings_proba=None):
+
+        embeddings = embeddings[indices_unlabeled]
+
+        embeddings_mean = np.mean(embeddings, axis=0)
+        if self.normalize:
+            from sklearn.preprocessing import normalize
+            embeddings = normalize(embeddings)
+            embeddings_mean = normalize(embeddings_mean[np.newaxis, :])
+
+        embeddings_mean = embeddings_mean.ravel()
+
+        return lightweight_coreset(embeddings, embeddings_mean, n, normalized=self.normalize)
+
+    def __str__(self):
+        return f'LightweightCoreset(normalize={self.normalize})'
+

@@ -236,3 +236,76 @@ def convert_bbox_from_albumentations(
         bbox = cast(BoxType, (x, y, width, height, *tail))
     return bbox
 
+class BboxParams(Params):
+    """Parameters of bounding boxes
+
+    Args:
+        format (str): format of bounding boxes. Should be `coco`, `pascal_voc`, `albumentations` or `yolo`.
+
+            The `coco` format
+                `[x_min, y_min, width, height]`, e.g. [97, 12, 150, 200].
+            The `pascal_voc` format
+                `[x_min, y_min, x_max, y_max]`, e.g. [97, 12, 247, 212].
+            The `albumentations` format
+                is like `pascal_voc`, but normalized,
+                in other words: `[x_min, y_min, x_max, y_max]`, e.g. [0.2, 0.3, 0.4, 0.5].
+            The `yolo` format
+                `[x, y, width, height]`, e.g. [0.1, 0.2, 0.3, 0.4];
+                `x`, `y` - normalized bbox center; `width`, `height` - normalized bbox width and height.
+
+        label_fields (list): List of fields joined with boxes, e.g., labels.
+        min_area (float): Minimum area of a bounding box in pixels or normalized units.
+            Bounding boxes with an area less than this value will be removed. Default: 0.0.
+        min_visibility (float): Minimum fraction of area for a bounding box to remain in the list.
+            Bounding boxes with a visible area less than this fraction will be removed. Default: 0.0.
+        min_width (float): Minimum width of a bounding box in pixels or normalized units.
+            Bounding boxes with a width less than this value will be removed. Default: 0.0.
+        min_height (float): Minimum height of a bounding box in pixels or normalized units.
+            Bounding boxes with a height less than this value will be removed. Default: 0.0.
+        check_each_transform (bool): If True, bounding boxes will be checked after each dual transform. Default: True.
+        clip (bool): If True, bounding boxes will be clipped to the image borders before applying any transform.
+            Default: False.
+
+    """
+
+    def __init__(
+        self,
+        format: str,  # noqa: A002
+        label_fields: Sequence[Any] | None = None,
+        min_area: float = 0.0,
+        min_visibility: float = 0.0,
+        min_width: float = 0.0,
+        min_height: float = 0.0,
+        check_each_transform: bool = True,
+        clip: bool = False,
+    ):
+        super().__init__(format, label_fields)
+        self.min_area = min_area
+        self.min_visibility = min_visibility
+        self.min_width = min_width
+        self.min_height = min_height
+        self.check_each_transform = check_each_transform
+        self.clip = clip
+
+    def to_dict_private(self) -> dict[str, Any]:
+        data = super().to_dict_private()
+        data.update(
+            {
+                "min_area": self.min_area,
+                "min_visibility": self.min_visibility,
+                "min_width": self.min_width,
+                "min_height": self.min_height,
+                "check_each_transform": self.check_each_transform,
+                "clip": self.clip,
+            },
+        )
+        return data
+
+    @classmethod
+    def is_serializable(cls) -> bool:
+        return True
+
+    @classmethod
+    def get_class_fullname(cls) -> str:
+        return "BboxParams"
+

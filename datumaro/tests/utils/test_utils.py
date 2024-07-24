@@ -99,3 +99,65 @@ def run_datum(test, *args, expected_code=0):
     with set_no_telemetry():
         test.assertEqual(expected_code, main(args), str(args))
 
+class TestDir(FileRemover):
+    """
+    Creates a temporary directory for a test. Uses the name of
+    the test function to name the directory.
+
+    Usage:
+
+    .. code-block::
+
+        with TestDir() as test_dir:
+            ...
+    """
+
+    def __init__(self, path: Optional[str] = None, frame_id: int = 2):
+        if not path:
+            prefix = f"temp_{current_function_name(frame_id)}-"
+        else:
+            prefix = None
+        self._prefix = prefix
+
+        super().__init__(path, is_dir=True)
+
+    def __enter__(self) -> str:
+        """
+        Creates a test directory.
+
+        Returns: path to the directory
+        """
+
+        path = self.path
+
+        if path is None:
+            path = tempfile.mkdtemp(dir=os.getcwd(), prefix=self._prefix)
+            self.path = path
+        else:
+            os.makedirs(path, exist_ok=False)
+
+        return path
+
+class TestCaseHelper:
+    """This class will exist until we complete the migration from unittest to pytest.
+    It is designed to mimic unittest.TestCase behaviors to minimize the migration work labor cost.
+    """
+
+    def assertTrue(self, boolean: bool, err_msg: str = ""):
+        assert boolean, err_msg
+
+    def assertFalse(self, boolean: bool, err_msg: str = ""):
+        assert not boolean, err_msg
+
+    def assertEqual(self, item1: Any, item2: Any, err_msg: str = ""):
+        assert item1 == item2, err_msg
+
+    def assertListEqual(self, list1: List[Any], list2: List[Any], err_msg: str = ""):
+        assert isinstance(list1, list) and isinstance(list2, list), err_msg
+        assert len(list1) == len(list2), err_msg
+        for item1, item2 in zip(list1, list2):
+            self.assertEqual(item1, item2, err_msg)
+
+    def fail(self, msg):
+        pytest.fail(reason=msg)
+

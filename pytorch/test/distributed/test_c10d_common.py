@@ -17,3 +17,10 @@ def barrier(self, opts=None):
 
         return DummyWork()
 
+class Options:
+        def __init__(self):
+            pass
+
+        def create(self):
+            pass
+

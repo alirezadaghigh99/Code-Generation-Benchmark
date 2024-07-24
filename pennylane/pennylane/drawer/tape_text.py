@@ -336,3 +336,24 @@ def tape_text(
 
     return tape_totals
 
+class _Config:
+    """Dataclass containing attributes needed for updating the strings to be drawn for each layer"""
+
+    wire_map: dict
+    """Map between wire labels and their place in order"""
+
+    bit_map: dict
+    """Map between mid-circuit measurements and their corresponding bit in order"""
+
+    cur_layer: Optional[int] = None
+    """Current layer index that is being updated"""
+
+    cwire_layers: Optional[list] = None
+    """A list of layers used (mid measure or conditional) for each classical wire."""
+
+    decimals: Optional[int] = None
+    """Specifies how to round the parameters of operators"""
+
+    cache: Optional[dict] = None
+    """dictionary that carries information between label calls in the same drawing"""
+

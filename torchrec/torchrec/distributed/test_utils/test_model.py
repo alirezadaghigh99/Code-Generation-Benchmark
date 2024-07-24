@@ -272,3 +272,280 @@ def generate(
             local_inputs,
         )
 
+class TestModelWithPreproc(nn.Module):
+    """
+    Basic module with up to 3 preproc modules:
+    - preproc on idlist_features for non-weighted EBC
+    - preproc on idscore_features for weighted EBC
+    - optional preproc on model input shared by both EBCs
+
+    Args:
+        tables,
+        weighted_tables,
+        device,
+        preproc_module,
+        num_float_features,
+        run_preproc_inline,
+
+    Example:
+        >>> TestModelWithPreproc(tables, weighted_tables, device)
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]
+    """
+
+    def __init__(
+        self,
+        tables: List[EmbeddingBagConfig],
+        weighted_tables: List[EmbeddingBagConfig],
+        device: torch.device,
+        preproc_module: Optional[nn.Module] = None,
+        num_float_features: int = 10,
+        run_preproc_inline: bool = False,
+    ) -> None:
+        super().__init__()
+        self.dense = TestDenseArch(num_float_features, device)
+
+        self.ebc: EmbeddingBagCollection = EmbeddingBagCollection(
+            tables=tables,
+            device=device,
+        )
+        self.weighted_ebc = EmbeddingBagCollection(
+            tables=weighted_tables,
+            is_weighted=True,
+            device=device,
+        )
+        self.preproc_nonweighted = TestPreprocNonWeighted()
+        self.preproc_weighted = TestPreprocWeighted()
+        self._preproc_module = preproc_module
+        self._run_preproc_inline = run_preproc_inline
+
+    def forward(
+        self,
+        input: ModelInput,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Runs preprco for EBC and weighted EBC, optionally runs preproc for input
+
+        Args:
+            input
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]
+        """
+        modified_input = input
+
+        if self._preproc_module is not None:
+            modified_input = self._preproc_module(modified_input)
+        elif self._run_preproc_inline:
+            modified_input.idlist_features = KeyedJaggedTensor.from_lengths_sync(
+                modified_input.idlist_features.keys(),
+                modified_input.idlist_features.values(),
+                modified_input.idlist_features.lengths(),
+            )
+
+        modified_idlist_features = self.preproc_nonweighted(
+            modified_input.idlist_features
+        )
+        modified_idscore_features = self.preproc_weighted(
+            modified_input.idscore_features
+        )
+        ebc_out = self.ebc(modified_idlist_features[0])
+        weighted_ebc_out = self.weighted_ebc(modified_idscore_features[0])
+
+        pred = torch.cat([ebc_out.values(), weighted_ebc_out.values()], dim=1)
+        return pred.sum(), pred
+
+class TestSparseNN(TestSparseNNBase, CopyableMixin):
+    """
+    Simple version of a SparseNN model.
+
+    Args:
+        tables: List[EmbeddingBagConfig],
+        weighted_tables: Optional[List[EmbeddingBagConfig]],
+        embedding_groups: Optional[Dict[str, List[str]]],
+        dense_device: Optional[torch.device],
+        sparse_device: Optional[torch.device],
+
+    Call Args:
+        input: ModelInput,
+
+    Returns:
+        torch.Tensor
+
+    Example::
+
+        TestSparseNN()
+    """
+
+    def __init__(
+        self,
+        tables: List[EmbeddingBagConfig],
+        num_float_features: int = 10,
+        weighted_tables: Optional[List[EmbeddingBagConfig]] = None,
+        embedding_groups: Optional[Dict[str, List[str]]] = None,
+        dense_device: Optional[torch.device] = None,
+        sparse_device: Optional[torch.device] = None,
+        max_feature_lengths_list: Optional[List[Dict[str, int]]] = None,
+        feature_processor_modules: Optional[Dict[str, torch.nn.Module]] = None,
+        over_arch_clazz: Type[nn.Module] = TestOverArch,
+        preproc_module: Optional[nn.Module] = None,
+    ) -> None:
+        super().__init__(
+            tables=cast(List[BaseEmbeddingConfig], tables),
+            weighted_tables=cast(Optional[List[BaseEmbeddingConfig]], weighted_tables),
+            embedding_groups=embedding_groups,
+            dense_device=dense_device,
+            sparse_device=sparse_device,
+        )
+        if weighted_tables is None:
+            weighted_tables = []
+        self.dense = TestDenseArch(num_float_features, dense_device)
+        self.sparse = TestSparseArch(
+            tables,
+            weighted_tables,
+            sparse_device,
+            max_feature_lengths_list if max_feature_lengths_list is not None else None,
+        )
+
+        embedding_names = (
+            list(embedding_groups.values())[0] if embedding_groups else None
+        )
+        self._embedding_names: List[str] = (
+            embedding_names
+            if embedding_names
+            else [feature for table in tables for feature in table.feature_names]
+        )
+        self._weighted_features: List[str] = [
+            feature for table in weighted_tables for feature in table.feature_names
+        ]
+        self.over: nn.Module = over_arch_clazz(
+            tables, weighted_tables, embedding_names, dense_device
+        )
+        self.register_buffer(
+            "dummy_ones",
+            torch.ones(1, device=dense_device),
+        )
+        self.preproc_module = preproc_module
+
+    def sparse_forward(self, input: ModelInput) -> KeyedTensor:
+        return self.sparse(
+            features=input.idlist_features,
+            weighted_features=input.idscore_features,
+            batch_size=input.float_features.size(0),
+        )
+
+    def dense_forward(
+        self, input: ModelInput, sparse_output: KeyedTensor
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        dense_r = self.dense(input.float_features)
+        over_r = self.over(dense_r, sparse_output)
+        pred = torch.sigmoid(torch.mean(over_r, dim=1)) + self.dummy_ones
+        if self.training:
+            return (
+                torch.nn.functional.binary_cross_entropy_with_logits(pred, input.label),
+                pred,
+            )
+        else:
+            return pred
+
+    def forward(
+        self,
+        input: ModelInput,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if self.preproc_module:
+            input = self.preproc_module(input)
+        return self.dense_forward(input, self.sparse_forward(input))
+
+class TestEBCSharder(EmbeddingBagCollectionSharder):
+    def __init__(
+        self,
+        sharding_type: str,
+        kernel_type: str,
+        fused_params: Optional[Dict[str, Any]] = None,
+        qcomm_codecs_registry: Optional[Dict[str, QuantizedCommCodecs]] = None,
+    ) -> None:
+        if fused_params is None:
+            fused_params = {}
+
+        self._sharding_type = sharding_type
+        self._kernel_type = kernel_type
+        super().__init__(fused_params, qcomm_codecs_registry)
+
+    """
+    Restricts sharding to single type only.
+    """
+
+    def sharding_types(self, compute_device_type: str) -> List[str]:
+        return [self._sharding_type]
+
+    """
+    Restricts to single impl.
+    """
+
+    def compute_kernels(
+        self, sharding_type: str, compute_device_type: str
+    ) -> List[str]:
+        return [self._kernel_type]
+
+class TestNegSamplingModule(torch.nn.Module):
+    """
+    Basic module to simulate feature augmentation preproc (e.g. neg sampling) for testing
+
+    Args:
+        extra_input
+        has_params
+
+    Example:
+        >>> preproc = TestNegSamplingModule(extra_input)
+        >>> out = preproc(in)
+
+    Returns:
+        ModelInput
+    """
+
+    def __init__(
+        self,
+        extra_input: ModelInput,
+        has_params: bool = False,
+    ) -> None:
+        super().__init__()
+        self._extra_input = extra_input
+        if has_params:
+            self._linear: nn.Module = nn.Linear(30, 30)
+
+    def forward(self, input: ModelInput) -> ModelInput:
+        """
+        Appends extra features to model input
+
+        Args:
+            input
+        Returns:
+            ModelInput
+        """
+
+        # merge extra input
+        modified_input = copy.deepcopy(input)
+
+        # dim=0 (batch dimensions) increases by self._extra_input.float_features.shape[0]
+        modified_input.float_features = torch.concat(
+            (modified_input.float_features, self._extra_input.float_features), dim=0
+        )
+
+        # stride will be same but features will be joined
+        modified_input.idlist_features = KeyedJaggedTensor.concat(
+            [modified_input.idlist_features, self._extra_input.idlist_features]
+        )
+        if self._extra_input.idscore_features is not None:
+            # stride will be smae but features will be joined
+            modified_input.idscore_features = KeyedJaggedTensor.concat(
+                # pyre-ignore
+                [modified_input.idscore_features, self._extra_input.idscore_features]
+            )
+
+        # dim=0 (batch dimensions) increases by self._extra_input.input_label.shape[0]
+        modified_input.label = torch.concat(
+            (modified_input.label, self._extra_input.label), dim=0
+        )
+
+        return modified_input
+

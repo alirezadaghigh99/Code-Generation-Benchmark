@@ -45,3 +45,30 @@ def annotate(the_type, the_value):
     """
     return the_value
 
+class strict_fusion:
+    """
+    Give errors if not all nodes have been fused in inference, or symbolically differentiated in training.
+
+    Example:
+    Forcing fusion of additions.
+
+    .. code-block:: python
+
+        @torch.jit.script
+        def foo(x):
+            with torch.jit.strict_fusion():
+                return x + x + x
+
+    """
+
+    def __init__(self):
+        if not torch._jit_internal.is_scripting():
+            warnings.warn("Only works in script mode")
+        pass
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, type: Any, value: Any, tb: Any) -> None:
+        pass
+

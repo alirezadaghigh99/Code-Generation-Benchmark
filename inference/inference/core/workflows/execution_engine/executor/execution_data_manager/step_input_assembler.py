@@ -50,3 +50,24 @@ def get_empty_batch_elements_indices(value: Any) -> Set[DynamicBatchIndex]:
                 result.add(index)
     return result
 
+class GuardForIndicesWrapping:
+
+    def __init__(self):
+        self._registered_wrapping: Optional[List[DynamicBatchIndex]] = None
+
+    def register_wrapping(
+        self, indices_before_wrapping: List[DynamicBatchIndex]
+    ) -> None:
+        if self._registered_wrapping is None:
+            self._registered_wrapping = indices_before_wrapping
+        elif self._registered_wrapping != indices_before_wrapping:
+            raise ExecutionEngineRuntimeError(
+                public_message=f"Detected a situation when step requires dimensionality wrapping, but"
+                f"different inputs register different elements indices to wrap which is illegal "
+                f"and should be detected earlier by Workflows compiler. This is most likely a bug. "
+                f"Contact Roboflow team through github issues "
+                f"(https://github.com/roboflow/inference/issues) providing full context of"
+                f"the problem - including workflow definition you use.",
+                context="workflow_execution | step_input_assembling",
+            )
+

@@ -137,3 +137,307 @@ def adjoint(fn, lazy=True):
         return Adjoint(fn)
     return create_adjoint_op(fn, lazy)
 
+class Adjoint(SymbolicOp):
+    """
+    The Adjoint of an operator.
+
+    Args:
+        base (~.operation.Operator): The operator that is adjointed.
+
+    .. seealso:: :func:`~.adjoint`, :meth:`~.operation.Operator.adjoint`
+
+    This is a *developer*-facing class, and the :func:`~.adjoint` transform should be used to
+    construct instances
+    of this class.
+
+    **Example**
+
+    >>> op = Adjoint(qml.S(0))
+    >>> op.name
+    'Adjoint(S)'
+    >>> qml.matrix(op)
+    array([[1.-0.j, 0.-0.j],
+       [0.-0.j, 0.-1.j]])
+    >>> qml.generator(Adjoint(qml.RX(1.0, wires=0)))
+    (X(0), 0.5)
+    >>> Adjoint(qml.RX(1.234, wires=0)).data
+    (1.234,)
+
+    .. details::
+        :title: Developer Details
+
+        This class mixes in parent classes based on the inheritance tree of the provided ``Operator``.
+        For example, when provided an ``Operation``, the instance will inherit from ``Operation`` and
+        the ``AdjointOperation`` mixin.
+
+        >>> op = Adjoint(qml.RX(1.234, wires=0))
+        >>> isinstance(op, qml.operation.Operation)
+        True
+        >>> isinstance(op, AdjointOperation)
+        True
+        >>> op.grad_method
+        'A'
+
+        If the base class is an ``Observable`` instead, the ``Adjoint`` will be an ``Observable`` as
+        well.
+
+        >>> op = Adjoint(1.0 * qml.X(0))
+        >>> isinstance(op, qml.operation.Observable)
+        True
+        >>> isinstance(op, qml.operation.Operation)
+        False
+        >>> Adjoint(qml.X(0)) @ qml.Y(1)
+        (Adjoint(X(0))) @ Y(1)
+
+    """
+
+    def _flatten(self):
+        return (self.base,), tuple()
+
+    @classmethod
+    def _unflatten(cls, data, _):
+        return cls(data[0])
+
+    # pylint: disable=unused-argument
+    def __new__(cls, base=None, id=None):
+        """Returns an uninitialized type with the necessary mixins.
+
+        If the ``base`` is an ``Operation``, this will return an instance of ``AdjointOperation``.
+        If ``Observable`` but not ``Operation``, it will be ``AdjointObs``.
+        And if both, it will be an instance of ``AdjointOpObs``.
+
+        """
+
+        if isinstance(base, Operation):
+            if isinstance(base, Observable):
+                return object.__new__(AdjointOpObs)
+
+            # not an observable
+            return object.__new__(AdjointOperation)
+
+        if isinstance(base, Observable):
+            return object.__new__(AdjointObs)
+
+        return object.__new__(Adjoint)
+
+    def __init__(self, base=None, id=None):
+        self._name = f"Adjoint({base.name})"
+        super().__init__(base, id=id)
+
+    def __repr__(self):
+        return f"Adjoint({self.base})"
+
+    @property
+    def ndim_params(self):
+        return self.base.ndim_params
+
+    def label(self, decimals=None, base_label=None, cache=None):
+        base_label = self.base.label(decimals, base_label, cache=cache)
+        return (
+            f"({base_label})†"
+            if self.base.arithmetic_depth > 0 and len(base_label) > 1
+            else f"{base_label}†"
+        )
+
+    def matrix(self, wire_order=None):
+        if isinstance(self.base, qml.ops.Hamiltonian):
+            base_matrix = qml.matrix(self.base, wire_order=wire_order)
+        else:
+            base_matrix = self.base.matrix(wire_order=wire_order)
+
+        return moveaxis(conj(base_matrix), -2, -1)
+
+    # pylint: disable=arguments-differ
+    def sparse_matrix(self, wire_order=None, format="csr"):
+        base_matrix = self.base.sparse_matrix(wire_order=wire_order)
+        return transpose(conj(base_matrix)).asformat(format=format)
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_decomposition(self):
+        return self.base.has_adjoint or self.base.has_decomposition
+
+    def decomposition(self):
+        if self.base.has_adjoint:
+            return [self.base.adjoint()]
+        base_decomp = self.base.decomposition()
+        return [Adjoint(op) for op in reversed(base_decomp)]
+
+    def eigvals(self):
+        # Cannot define ``compute_eigvals`` because Hermitian only defines ``eigvals``
+        return conj(self.base.eigvals())
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_diagonalizing_gates(self):
+        return self.base.has_diagonalizing_gates
+
+    def diagonalizing_gates(self):
+        return self.base.diagonalizing_gates()
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_adjoint(self):
+        return True
+
+    def adjoint(self):
+        return self.base.queue()
+
+    def simplify(self):
+        base = self.base.simplify()
+        if self.base.has_adjoint:
+            return base.adjoint().simplify()
+        return Adjoint(base=base.simplify())
+
+class Adjoint(SymbolicOp):
+    """
+    The Adjoint of an operator.
+
+    Args:
+        base (~.operation.Operator): The operator that is adjointed.
+
+    .. seealso:: :func:`~.adjoint`, :meth:`~.operation.Operator.adjoint`
+
+    This is a *developer*-facing class, and the :func:`~.adjoint` transform should be used to
+    construct instances
+    of this class.
+
+    **Example**
+
+    >>> op = Adjoint(qml.S(0))
+    >>> op.name
+    'Adjoint(S)'
+    >>> qml.matrix(op)
+    array([[1.-0.j, 0.-0.j],
+       [0.-0.j, 0.-1.j]])
+    >>> qml.generator(Adjoint(qml.RX(1.0, wires=0)))
+    (X(0), 0.5)
+    >>> Adjoint(qml.RX(1.234, wires=0)).data
+    (1.234,)
+
+    .. details::
+        :title: Developer Details
+
+        This class mixes in parent classes based on the inheritance tree of the provided ``Operator``.
+        For example, when provided an ``Operation``, the instance will inherit from ``Operation`` and
+        the ``AdjointOperation`` mixin.
+
+        >>> op = Adjoint(qml.RX(1.234, wires=0))
+        >>> isinstance(op, qml.operation.Operation)
+        True
+        >>> isinstance(op, AdjointOperation)
+        True
+        >>> op.grad_method
+        'A'
+
+        If the base class is an ``Observable`` instead, the ``Adjoint`` will be an ``Observable`` as
+        well.
+
+        >>> op = Adjoint(1.0 * qml.X(0))
+        >>> isinstance(op, qml.operation.Observable)
+        True
+        >>> isinstance(op, qml.operation.Operation)
+        False
+        >>> Adjoint(qml.X(0)) @ qml.Y(1)
+        (Adjoint(X(0))) @ Y(1)
+
+    """
+
+    def _flatten(self):
+        return (self.base,), tuple()
+
+    @classmethod
+    def _unflatten(cls, data, _):
+        return cls(data[0])
+
+    # pylint: disable=unused-argument
+    def __new__(cls, base=None, id=None):
+        """Returns an uninitialized type with the necessary mixins.
+
+        If the ``base`` is an ``Operation``, this will return an instance of ``AdjointOperation``.
+        If ``Observable`` but not ``Operation``, it will be ``AdjointObs``.
+        And if both, it will be an instance of ``AdjointOpObs``.
+
+        """
+
+        if isinstance(base, Operation):
+            if isinstance(base, Observable):
+                return object.__new__(AdjointOpObs)
+
+            # not an observable
+            return object.__new__(AdjointOperation)
+
+        if isinstance(base, Observable):
+            return object.__new__(AdjointObs)
+
+        return object.__new__(Adjoint)
+
+    def __init__(self, base=None, id=None):
+        self._name = f"Adjoint({base.name})"
+        super().__init__(base, id=id)
+
+    def __repr__(self):
+        return f"Adjoint({self.base})"
+
+    @property
+    def ndim_params(self):
+        return self.base.ndim_params
+
+    def label(self, decimals=None, base_label=None, cache=None):
+        base_label = self.base.label(decimals, base_label, cache=cache)
+        return (
+            f"({base_label})†"
+            if self.base.arithmetic_depth > 0 and len(base_label) > 1
+            else f"{base_label}†"
+        )
+
+    def matrix(self, wire_order=None):
+        if isinstance(self.base, qml.ops.Hamiltonian):
+            base_matrix = qml.matrix(self.base, wire_order=wire_order)
+        else:
+            base_matrix = self.base.matrix(wire_order=wire_order)
+
+        return moveaxis(conj(base_matrix), -2, -1)
+
+    # pylint: disable=arguments-differ
+    def sparse_matrix(self, wire_order=None, format="csr"):
+        base_matrix = self.base.sparse_matrix(wire_order=wire_order)
+        return transpose(conj(base_matrix)).asformat(format=format)
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_decomposition(self):
+        return self.base.has_adjoint or self.base.has_decomposition
+
+    def decomposition(self):
+        if self.base.has_adjoint:
+            return [self.base.adjoint()]
+        base_decomp = self.base.decomposition()
+        return [Adjoint(op) for op in reversed(base_decomp)]
+
+    def eigvals(self):
+        # Cannot define ``compute_eigvals`` because Hermitian only defines ``eigvals``
+        return conj(self.base.eigvals())
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_diagonalizing_gates(self):
+        return self.base.has_diagonalizing_gates
+
+    def diagonalizing_gates(self):
+        return self.base.diagonalizing_gates()
+
+    # pylint: disable=arguments-renamed, invalid-overridden-method
+    @property
+    def has_adjoint(self):
+        return True
+
+    def adjoint(self):
+        return self.base.queue()
+
+    def simplify(self):
+        base = self.base.simplify()
+        if self.base.has_adjoint:
+            return base.adjoint().simplify()
+        return Adjoint(base=base.simplify())
+

@@ -75,3 +75,37 @@ def spawn(fn, args=(), nprocs=1, join=True, daemon=False, start_method="spawn"):
         warnings.warn(msg, FutureWarning, stacklevel=2)
     return start_processes(fn, args, nprocs, join, daemon, start_method="spawn")
 
+class ProcessRaisedException(ProcessException):
+    """Exception raised when a process failed due to an exception raised by the code."""
+
+    def __init__(
+        self,
+        msg: str,
+        error_index: int,
+        error_pid: int,
+    ):
+        super().__init__(msg, error_index, error_pid)
+
+class ProcessExitedException(ProcessException):
+    """Exception raised when a process failed due to signal or exited with a specific code."""
+
+    __slots__ = ["exit_code"]
+
+    def __init__(
+        self,
+        msg: str,
+        error_index: int,
+        error_pid: int,
+        exit_code: int,
+        signal_name: Optional[str] = None,
+    ):
+        super().__init__(msg, error_index, error_pid)
+        self.exit_code = exit_code
+        self.signal_name = signal_name
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.msg, self.error_index, self.pid, self.exit_code, self.signal_name),
+        )
+

@@ -17,3 +17,33 @@ def issubdtype(arg1, arg2):
         arg2 = dtype(arg2).type
     return issubclass(arg1, arg2)
 
+class int8(signedinteger):
+    name = "int8"
+    typecode = "b"
+    torch_dtype = torch.int8
+
+class uint64(signedinteger):
+    name = "uint64"
+    typecode = "L"
+    torch_dtype = torch.uint64
+
+class float64(floating):
+    name = "float64"
+    typecode = "d"
+    torch_dtype = torch.float64
+
+class int16(signedinteger):
+    name = "int16"
+    typecode = "h"
+    torch_dtype = torch.int16
+
+class uint8(unsignedinteger):
+    name = "uint8"
+    typecode = "B"
+    torch_dtype = torch.uint8
+
+class complex64(complexfloating):
+    name = "complex64"
+    typecode = "F"
+    torch_dtype = torch.complex64
+
